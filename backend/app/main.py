@@ -1,0 +1,101 @@
+"""Agile Sales & Marketing - Backend Application Entrypoint."""
+from __future__ import annotations
+
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.v1 import api_router
+from app.core.config import settings
+
+# Setup basic logging
+logging.basicConfig(
+    level=logging.DEBUG if settings.DEBUG else logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("agile_sales_marketing")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager starting the background scheduler loop when enabled."""
+    scheduler_task = None
+    if settings.SCHEDULER_ENABLED:
+        logger.info("SCHEDULER_ENABLED is True. Starting background campaign scheduler loop...")
+        from app.core.database import SessionLocal
+        from app.services.campaign_scheduler import CampaignSchedulerService
+        from datetime import datetime, timezone
+
+        async def _scheduler_loop():
+            while True:
+                try:
+                    await asyncio.sleep(settings.SCHEDULER_INTERVAL_SECONDS)
+                    db = SessionLocal()
+                    try:
+                        service = CampaignSchedulerService(db=db)
+                        service.tick(now=datetime.now(timezone.utc))
+                    finally:
+                        db.close()
+                except asyncio.CancelledError:
+                    break
+                except Exception as exc:
+                    logger.error("Error in background campaign scheduler loop: %s", exc)
+
+        scheduler_task = asyncio.create_task(_scheduler_loop())
+    else:
+        logger.info("Campaign scheduler is disabled by default (settings.SCHEDULER_ENABLED is False).")
+
+    yield
+
+    if scheduler_task:
+        logger.info("Shutting down background campaign scheduler...")
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version=settings.VERSION,
+    description="Backend API for Agile Sales & Marketing platform.",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
+)
+
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount API v1 router
+app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+@app.get("/", tags=["Health"])
+async def root():
+    """Root status endpoint."""
+    return {
+        "app": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "status": "online",
+    }
+
+
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """Application health probe."""
+    return {
+        "status": "ok",
+        "app": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "hubspot_configured": settings.is_hubspot_configured,
+    }
