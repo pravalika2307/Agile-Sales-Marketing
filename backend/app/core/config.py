@@ -1,8 +1,8 @@
 """Application configuration for Agile Sales & Marketing Backend."""
 from __future__ import annotations
 
-from typing import Dict, Optional
-from pydantic import Field
+from typing import Any, ClassVar, Dict, List, Optional
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables and .env file."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "backend/.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -25,15 +25,58 @@ class Settings(BaseSettings):
     # Database settings
     DATABASE_URL: str = "postgresql+psycopg://user:password@localhost:5432/agile_sales_marketing"
 
+    # Known insecure or tutorial default secrets that must be rejected at startup
+    KNOWN_INSECURE_SECRETS: ClassVar[set[str]] = {
+        "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7",
+        "change-me-in-production-use-a-strong-secret-key-at-least-32-chars",
+        "secret",
+        "secretkey",
+        "changeme",
+        "your-secret-key",
+        "password",
+        "1234567890",
+    }
+
     # Authentication & Security settings
-    # SECRET_KEY is marked with repr=False so it is never exposed in logging or repr strings
+    # SECRET_KEY is marked with repr=False so it is never exposed in logging or repr strings.
+    # Must be configured via environment variable or .env file (no insecure default fallback).
     SECRET_KEY: str = Field(
-        default="09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7",
+        ...,
+        description="Cryptographically secure 256-bit signing key for JWT tokens.",
         repr=False,
     )
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 14
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        """Reject missing, weak (< 32 chars), or known insecure/default signing keys."""
+        if not v or not v.strip():
+            raise ValueError("SECRET_KEY must be configured and cannot be empty.")
+        val = v.strip()
+        if len(val) < 32:
+            raise ValueError("SECRET_KEY is too weak: must be at least 32 characters long.")
+        if val in cls.KNOWN_INSECURE_SECRETS or "change-me" in val.lower():
+            raise ValueError(
+                "SECRET_KEY is using a known insecure, default, or placeholder secret. "
+                "A strong, cryptographically random secret must be configured."
+            )
+        return val
+
+    # CORS settings: strict allowlist for trusted origins (development and documented clients)
+    CORS_ORIGINS: List[str] = Field(
+        default=["http://localhost:3000", "http://127.0.0.1:3000"],
+        description="Allowed origins for CORS requests. Restricts cross-origin credentialed access.",
+    )
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
     # HubSpot integration settings
     # Access token is marked with repr=False so it is never exposed in logging or repr strings
@@ -153,6 +196,10 @@ class Settings(BaseSettings):
             "agile-receivables": "https://cal.com/agilereceivables/30min",
             "agile-receivables-org": "https://cal.com/agilereceivables/30min",
             "3de43e6b-6cc0-4391-a061-2faba481bcb8": "https://cal.com/agilereceivables/30min",
+            "agile-sales-marketing": "https://cal.com/agilereceivables/30min",
+            "agile-sales-marketing-org": "https://cal.com/agilereceivables/30min",
+            "agile sales & marketing": "https://cal.com/agilereceivables/30min",
+            "0d85dc9f-1520-4bcb-8af4-8aad025255cb": "https://cal.com/agilereceivables/30min",
         }
     )
 
