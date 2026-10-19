@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateBackendToken, getBackendUrl } from "@/lib/backend-auth";
+import { extractAuthToken, getBackendUrl } from "@/lib/backend-auth";
 
 interface RouteParams {
   params: Promise<{ id: string; contactId: string }>;
@@ -9,7 +9,7 @@ export async function DELETE(request: Request, context: RouteParams) {
   try {
     const { id, contactId } = await context.params;
     const backendUrl = getBackendUrl();
-    const token = generateBackendToken();
+    const token = extractAuthToken(request) || "";
 
     const response = await fetch(`${backendUrl}/api/v1/campaigns/${id}/contacts/${contactId}`, {
       method: "DELETE",

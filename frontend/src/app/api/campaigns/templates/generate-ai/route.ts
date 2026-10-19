@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { generateBackendToken, getBackendUrl } from "@/lib/backend-auth";
+import { extractAuthToken, getBackendUrl } from "@/lib/backend-auth";
 
 export async function POST(request: Request) {
   try {
     const backendUrl = getBackendUrl();
-    const token = generateBackendToken();
+    const token = extractAuthToken(request) || "";
     const body = await request.json();
 
     const response = await fetch(`${backendUrl}/api/v1/campaigns/templates/generate-ai`, {

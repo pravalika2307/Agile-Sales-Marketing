@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateBackendToken, getBackendUrl } from "@/lib/backend-auth";
+import { extractAuthToken, getBackendUrl } from "@/lib/backend-auth";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -9,7 +9,7 @@ export async function GET(request: Request, context: RouteParams) {
   try {
     const { id } = await context.params;
     const backendUrl = getBackendUrl();
-    const token = generateBackendToken();
+    const token = extractAuthToken(request) || "";
     const { searchParams } = new URL(request.url);
     const queryString = searchParams.toString() ? `?${searchParams.toString()}` : "";
 
