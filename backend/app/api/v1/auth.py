@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user
+from app.core.cookie_utils import clear_auth_cookies, set_auth_cookies
 from app.core.database import get_db
 from app.core.security import (
     ExpiredTokenError,
@@ -44,6 +46,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 )
 async def register(
     request: RegisterRequest,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> AuthResponse:
     try:
@@ -59,6 +62,8 @@ async def register(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Registration failed due to an internal error. Please try again.",
         )
+
+    set_auth_cookies(response, tokens.access_token, tokens.refresh_token)
 
     return AuthResponse(
         user=UserResponse.model_validate(user),
@@ -76,6 +81,7 @@ async def register(
 )
 async def login(
     request: LoginRequest,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> AuthResponse:
     try:
@@ -94,11 +100,24 @@ async def login(
 
     org = db.query(Organization).filter(Organization.id == user.organization_id).first()
 
+    set_auth_cookies(response, tokens.access_token, tokens.refresh_token)
+
     return AuthResponse(
         user=UserResponse.model_validate(user),
         organization=OrganizationResponse.model_validate(org) if org else None,
         tokens=tokens,
     )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_200_OK,
+    summary="User logout",
+    description="Clears authentication cookies and invalidates current session.",
+)
+async def logout(response: Response) -> dict:
+    clear_auth_cookies(response)
+    return {"message": "Successfully logged out."}
 
 
 @router.get(
@@ -119,14 +138,29 @@ async def get_me(
     response_model=TokenResponse,
     status_code=status.HTTP_200_OK,
     summary="Refresh session tokens",
-    description="Validates a refresh token and issues a new access token.",
+    description="Validates a refresh token from JSON body or refresh_token cookie and issues a new token pair with updated cookies.",
 )
 async def refresh_session(
-    request: RefreshTokenRequest,
+    response: Response,
+    request: Request = None,  # type: ignore
+    payload: Optional[RefreshTokenRequest] = None,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
+    raw_token: Optional[str] = None
+    if payload and payload.refresh_token:
+        raw_token = payload.refresh_token
+    elif request and hasattr(request, "cookies") and "refresh_token" in request.cookies:
+        raw_token = request.cookies.get("refresh_token")
+
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token was not provided.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     try:
-        return refresh_tokens(db, request.refresh_token)
+        tokens = refresh_tokens(db, raw_token)
     except ExpiredTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -139,3 +173,6 @@ async def refresh_session(
             detail=f"Invalid refresh token: {exc}",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    set_auth_cookies(response, tokens.access_token, tokens.refresh_token)
+    return tokens
