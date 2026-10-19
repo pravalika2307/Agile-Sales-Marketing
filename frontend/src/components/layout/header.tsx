@@ -50,13 +50,50 @@ export const Header: React.FC<HeaderProps> = ({
 
   const menuRef = React.useRef<HTMLDivElement>(null);
 
-  const currentUser = {
-    name: "Pravalika Palle",
-    role: "Sales Lead",
-    email: "pravalika@agilereceivables.com",
-    organization: "Agile Receivables",
+  const [currentUser, setCurrentUser] = React.useState({
+    name: "Agile Admin",
+    role: "owner",
+    email: "admin@agilereceivables.com",
+    organization: "Agile Sales & Marketing",
     tenantId: "0d85dc9f-1520-4bcb-8af4-8aad025255cb",
-  };
+  });
+
+  // Load genuine session user on mount
+  React.useEffect(() => {
+    async function loadUser() {
+      // 1. Try reading agile_user cookie
+      try {
+        const match = document.cookie.match(/(?:^|;\s*)agile_user=([^;]+)/);
+        if (match && match[1]) {
+          const parsed = JSON.parse(decodeURIComponent(match[1]));
+          setCurrentUser({
+            name: parsed.name || "Agile Admin",
+            role: parsed.role || "owner",
+            email: parsed.email || "admin@agilereceivables.com",
+            organization: parsed.organization_name || "Agile Sales & Marketing",
+            tenantId: parsed.organization_id || "0d85dc9f-1520-4bcb-8af4-8aad025255cb",
+          });
+          return;
+        }
+      } catch {}
+
+      // 2. Fetch /api/auth/me
+      try {
+        const resp = await fetch("/api/auth/me");
+        if (resp.ok) {
+          const data = await resp.json();
+          setCurrentUser((prev) => ({
+            ...prev,
+            name: data.full_name || prev.name,
+            role: data.role || prev.role,
+            email: data.email || prev.email,
+            tenantId: data.organization_id || prev.tenantId,
+          }));
+        }
+      } catch {}
+    }
+    loadUser();
+  }, []);
 
   const userInitials = getInitials(currentUser.name);
 
@@ -75,12 +112,15 @@ export const Header: React.FC<HeaderProps> = ({
     };
   }, [userMenuOpen]);
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
     setUserMenuOpen(false);
     setSignedOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
     setTimeout(() => {
-      window.location.href = "/";
-    }, 1000);
+      window.location.href = "/login";
+    }, 600);
   };
 
   return (
