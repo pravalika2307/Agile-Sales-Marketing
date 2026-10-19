@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  generateBackendToken,
+  extractAuthToken,
   getBackendUrl,
   handleBackendProxyError,
 } from "@/lib/backend-auth";
@@ -8,7 +8,7 @@ import {
 export async function GET(request: Request) {
   try {
     const backendUrl = getBackendUrl();
-    const token = generateBackendToken();
+    const token = extractAuthToken(request) || "";
     const { searchParams } = new URL(request.url);
     const queryString = searchParams.toString() ? `?${searchParams.toString()}` : "";
 
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const backendUrl = getBackendUrl();
-    const token = generateBackendToken();
+    const token = extractAuthToken(request) || "";
     const body = await request.json();
 
     const response = await fetch(`${backendUrl}/api/v1/companies`, {

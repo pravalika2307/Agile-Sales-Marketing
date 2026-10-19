@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateBackendToken, getBackendUrl } from "@/lib/backend-auth";
+import { extractAuthToken, getBackendUrl } from "@/lib/backend-auth";
 
 export async function GET(
   request: Request,
@@ -9,7 +9,7 @@ export async function GET(
     const { slug } = await params;
     const path = slug.join("/");
     const backendUrl = getBackendUrl();
-    const token = generateBackendToken();
+    const token = extractAuthToken(request) || "";
     const { searchParams } = new URL(request.url);
     const queryString = searchParams.toString() ? `?${searchParams.toString()}` : "";
 
@@ -49,7 +49,7 @@ export async function POST(
     const { slug } = await params;
     const path = slug.join("/");
     const backendUrl = getBackendUrl();
-    const token = generateBackendToken();
+    const token = extractAuthToken(request) || "";
     let bodyJson = {};
     try {
       bodyJson = await request.json();
@@ -93,7 +93,7 @@ export async function PATCH(
     const { slug } = await params;
     const path = slug.join("/");
     const backendUrl = getBackendUrl();
-    const token = generateBackendToken();
+    const token = extractAuthToken(request) || "";
     const bodyJson = await request.json();
 
     const response = await fetch(`${backendUrl}/api/v1/leads/${path}`, {
@@ -132,7 +132,7 @@ export async function DELETE(
     const { slug } = await params;
     const path = slug.join("/");
     const backendUrl = getBackendUrl();
-    const token = generateBackendToken();
+    const token = extractAuthToken(request) || "";
 
     const response = await fetch(`${backendUrl}/api/v1/leads/${path}`, {
       method: "DELETE",
