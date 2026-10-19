@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Generator, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -17,21 +17,26 @@ http_bearer = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
+    request: Request = None,  # type: ignore
     auth: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
     db: Session = Depends(get_db),
 ) -> User:
     """
-    Extract and validate JWT access token from Authorization header.
+    Extract and validate JWT access token from Authorization header or auth_token cookie.
     Returns the authenticated User instance.
     """
-    if not auth or not auth.credentials:
+    token: Optional[str] = None
+    if isinstance(auth, HTTPAuthorizationCredentials) and auth.credentials:
+        token = auth.credentials
+    elif request and hasattr(request, "cookies") and "auth_token" in request.cookies:
+        token = request.cookies.get("auth_token")
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication credentials were not provided.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    token = auth.credentials
 
     try:
         payload = decode_token(token, expected_type="access")
@@ -76,6 +81,7 @@ async def get_current_active_user(
 
 
 async def get_current_organization(
+    request: Request = None,  # type: ignore
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
     auth: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
@@ -87,19 +93,30 @@ async def get_current_organization(
     """
     target_org_id = current_user.organization_id
 
-    # Check token org_id claim
+    # Verify token org_id claim if present
+    raw_token = None
     if isinstance(auth, HTTPAuthorizationCredentials) and auth.credentials:
+        raw_token = auth.credentials
+    elif request and hasattr(request, "cookies") and "auth_token" in request.cookies:
+        raw_token = request.cookies.get("auth_token")
+
+    if raw_token:
         try:
-            payload = decode_token(auth.credentials, expected_type="access")
+            payload = decode_token(raw_token, expected_type="access")
             token_org_id = payload.get("org_id")
             if token_org_id:
-                target_org_id = uuid.UUID(str(token_org_id))
+                claimed_org_id = uuid.UUID(str(token_org_id))
+                if claimed_org_id != current_user.organization_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Cross-tenant access forbidden: token organization mismatch.",
+                    )
+        except HTTPException:
+            raise
         except Exception:
             pass
 
     org = db.query(Organization).filter(Organization.id == target_org_id).first()
-    if not org:
-        org = db.query(Organization).filter(Organization.id == current_user.organization_id).first()
 
     if not org:
         raise HTTPException(

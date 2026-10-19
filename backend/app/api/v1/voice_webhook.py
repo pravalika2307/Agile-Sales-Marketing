@@ -151,26 +151,15 @@ async def retell_webhook_endpoint(
     summary="Development/Testing Replay of call_analyzed payload",
     description=(
         "Safely simulates or replays a Retell call_analyzed payload for testing and verification. "
-        "In production environments, this endpoint strictly requires user authentication."
+        "Strictly requires tenant user authentication across all environments."
     ),
 )
 async def replay_analyzed_call_endpoint(
     payload: Dict[str, Any],
-    request: Request,
+    org: Organization = Depends(get_current_organization),
     db: Session = Depends(get_db),
 ) -> RetellWebhookResponse:
-    """Replay endpoint for development testing and pipeline verification."""
-    is_dev = settings.DEBUG or settings.ENVIRONMENT in ("development", "test")
-
-    # In non-dev environments, strictly enforce authentication
-    if not is_dev:
-        auth_header = request.headers.get("authorization")
-        if not auth_header:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Replay endpoint is disabled in production without active authorization.",
-            )
-
+    """Replay endpoint for testing and pipeline verification, authenticated per tenant."""
     service = VoiceFollowUpService(db=db)
     result = service.process_call_analyzed(payload)
 
