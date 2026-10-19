@@ -1,43 +1,10 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
+import { extractAuthToken, getBackendUrl } from "@/lib/backend-auth";
 
-function generateBackendToken(): string {
-  const secret = process.env.BACKEND_SECRET_KEY || "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7";
-  const header = { alg: "HS256", typ: "JWT" };
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    sub: "2c073c24-4ae1-4d58-8103-e2ae300d49e3",
-    org_id: "0d85dc9f-1520-4bcb-8af4-8aad025255cb",
-    role: "owner",
-    type: "access",
-    iat: now,
-    exp: now + 3600,
-  };
-
-  const b64 = (s: string) =>
-    Buffer.from(s)
-      .toString("base64")
-      .replace(/=/g, "")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_");
-
-  const encHeader = b64(JSON.stringify(header));
-  const encPayload = b64(JSON.stringify(payload));
-  const sig = crypto
-    .createHmac("sha256", secret)
-    .update(`${encHeader}.${encPayload}`)
-    .digest("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-
-  return `${encHeader}.${encPayload}.${sig}`;
-}
-
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:8000";
-    const token = generateBackendToken();
+    const token = extractAuthToken(request) || "";
 
     const response = await fetch(`${backendUrl}/api/v1/integrations/hubspot/status`, {
       method: "GET",
