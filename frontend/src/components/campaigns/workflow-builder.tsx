@@ -124,6 +124,7 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
   const [previewLoading, setPreviewLoading] = React.useState(false);
   const [previewResult, setPreviewResult] = React.useState<TemplatePreviewResponse | null>(null);
   const [previewContactId, setPreviewContactId] = React.useState<string>("");
+  const [previewMode, setPreviewMode] = React.useState<"text" | "html">("text");
   const [campaignContacts, setCampaignContacts] = React.useState<
     Array<{ id: string; name: string; email: string; companyName?: string | null }>
   >([]);
@@ -1258,19 +1259,97 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
               )}
 
               {/* Rendered Email Card */}
-              <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-2 shadow-xs">
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-400">Subject:</span>
-                  <p className="text-xs font-semibold text-header font-mono">
-                    {previewResult.rendered_subject || "(Empty subject)"}
-                  </p>
+              <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400">Subject:</span>
+                    <p className="text-xs font-semibold text-header font-mono">
+                      {previewResult.rendered_subject || "(Empty subject)"}
+                    </p>
+                  </div>
+                  {previewResult.rendered_html && (
+                    <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewMode("text")}
+                        className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                          previewMode === "text"
+                            ? "bg-white text-slate-800 shadow-xs"
+                            : "text-slate-500 hover:text-slate-700"
+                        }`}
+                      >
+                        Text View
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewMode("html")}
+                        className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                          previewMode === "html"
+                            ? "bg-white text-slate-800 shadow-xs"
+                            : "text-slate-500 hover:text-slate-700"
+                        }`}
+                      >
+                        HTML Email
+                      </button>
+                    </div>
+                  )}
                 </div>
+
                 <div className="pt-2 border-t border-slate-100">
                   <span className="text-[10px] uppercase font-bold text-slate-400">Body:</span>
-                  <p className="text-xs text-slate-700 whitespace-pre-wrap font-sans mt-1 leading-relaxed">
-                    {previewResult.rendered_body || "(Empty body)"}
-                  </p>
+                  {previewMode === "html" && previewResult.rendered_html ? (
+                    <div className="mt-2 border border-slate-200 rounded-md overflow-hidden bg-slate-50">
+                      <iframe
+                        srcDoc={previewResult.rendered_html}
+                        title="HTML Email Preview"
+                        className="w-full h-64 border-0 bg-white"
+                        sandbox="allow-popups allow-popups-to-escape-sandbox"
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-700 whitespace-pre-wrap font-sans mt-1 leading-relaxed">
+                      {previewResult.rendered_body ? (
+                        previewResult.rendered_body.split(/(https?:\/\/[^\s]+)/g).map((part, idx) =>
+                          part.match(/^https?:\/\//) ? (
+                            <a
+                              key={idx}
+                              href={part}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 underline font-medium hover:text-blue-800 break-all"
+                            >
+                              {part}
+                            </a>
+                          ) : (
+                            part
+                          )
+                        )
+                      ) : (
+                        "(Empty body)"
+                      )}
+                    </div>
+                  )}
                 </div>
+
+                {previewResult.booking_url && (
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between bg-blue-50/50 -mx-4 -mb-4 p-3 rounded-b-lg">
+                    <div className="flex items-center gap-1.5 text-xs text-blue-900 font-medium">
+                      <span>Booking CTA Destination:</span>
+                      <span className="text-slate-500 font-mono text-[11px] truncate max-w-xs">
+                        {previewResult.booking_url}
+                      </span>
+                    </div>
+                    <a
+                      href={previewResult.booking_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md shadow-xs transition-colors shrink-0"
+                    >
+                      <span>Book a Meeting</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                )}
               </div>
 
               {previewResult.contact_used && (

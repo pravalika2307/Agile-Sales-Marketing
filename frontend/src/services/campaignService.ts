@@ -109,6 +109,8 @@ export interface TemplatePreviewRequest {
 export interface TemplatePreviewResponse {
   rendered_subject: string | null;
   rendered_body: string | null;
+  rendered_html?: string | null;
+  booking_url?: string | null;
   unresolved_placeholders: string[];
   contact_used: Record<string, any> | null;
   validation_errors: string[];
