@@ -1,38 +1,31 @@
-import crypto from "crypto";
+/**
+ * Helper utilities for Next.js proxy route handlers communicating with FastAPI backend.
+ * Extracts genuine authentication tokens from client requests (no mock or dev bypass paths).
+ */
 
-export function generateBackendToken(): string {
-  const secret =
-    process.env.BACKEND_SECRET_KEY ||
-    "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7";
-  const header = { alg: "HS256", typ: "JWT" };
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    sub: "2c073c24-4ae1-4d58-8103-e2ae300d49e3",
-    org_id: "0d85dc9f-1520-4bcb-8af4-8aad025255cb",
-    role: "owner",
-    type: "access",
-    iat: now,
-    exp: now + 3600,
-  };
+/**
+ * Extract auth token from incoming request (Cookie: auth_token=<jwt> or Authorization: Bearer <jwt>).
+ * Returns null if no genuine token is provided in cookies or headers.
+ */
+export function extractAuthToken(request?: Request): string | null {
+  if (!request) return null;
 
-  const b64 = (s: string) =>
-    Buffer.from(s)
-      .toString("base64")
-      .replace(/=/g, "")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_");
+  // 1. Check Cookie header
+  const cookieHeader = request.headers.get("cookie");
+  if (cookieHeader) {
+    const match = cookieHeader.match(/(?:^|;\s*)auth_token=([^;]+)/);
+    if (match && match[1]) {
+      return decodeURIComponent(match[1]);
+    }
+  }
 
-  const encHeader = b64(JSON.stringify(header));
-  const encPayload = b64(JSON.stringify(payload));
-  const sig = crypto
-    .createHmac("sha256", secret)
-    .update(`${encHeader}.${encPayload}`)
-    .digest("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
+  // 2. Check Authorization header
+  const authHeader = request.headers.get("authorization");
+  if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+    return authHeader.substring(7).trim();
+  }
 
-  return `${encHeader}.${encPayload}.${sig}`;
+  return null;
 }
 
 export function getBackendUrl(): string {
