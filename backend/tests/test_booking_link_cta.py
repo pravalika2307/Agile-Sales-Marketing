@@ -20,7 +20,7 @@ from app.models.outreach import Outreach
 from app.models.tenant import Organization
 from app.schemas.email_template import AIEmailGenerateRequest
 from app.schemas.outreach import OutreachCreate
-from app.schemas.workflow import WorkflowConfig, WorkflowNode
+from app.schemas.workflow import TemplatePreviewRequest, WorkflowConfig, WorkflowNode
 from app.services.campaign_execution.service import execute_campaign
 from app.services.campaign_steps.ai_template_service import (
     _build_system_prompt,
@@ -42,7 +42,7 @@ from app.services.organization_config import (
 )
 from app.services.outreach.base import MockEmailProvider
 from app.services.outreach.service import create_outreach, send_outreach
-from app.services.workflow_service import validate_workflow
+from app.services.workflow_service import preview_template_content, validate_workflow
 
 
 # ── Database Fixtures ─────────────────────────────────────────────────────────
@@ -414,3 +414,82 @@ def test_workflow_validation_accepts_booking_link():
     result = validate_workflow(workflow)
     assert result.is_valid
     assert len(result.errors) == 0
+
+
+# ── 7. Live Preview Template Booking CTA Resolution & Tenant Isolation ──────
+
+def test_live_preview_resolves_booking_link_for_agile_receivables(test_db_session: Session):
+    """Email Step Live Preview resolves {booking_link} dynamically to Cal.com URL for Agile Receivables tenants."""
+    db = test_db_session
+    for org_id_str in [
+        "3de43e6b-6cc0-4391-a061-2faba481bcb8",
+        "0d85dc9f-1520-4bcb-8af4-8aad025255cb",
+    ]:
+        org_id = uuid.UUID(org_id_str)
+        org = Organization(id=org_id, name="Agile Organization", slug=f"org-{org_id_str[:8]}")
+        db.add(org)
+        db.flush()
+
+        req = TemplatePreviewRequest(
+            subject_template="Quick Question for {contact.first_name}",
+            body_template="Hi {contact.first_name},\n\nPlease book a time here: {booking_link}\n\nThanks,\n{sender_name}",
+            sender_name="Alex Smith",
+        )
+        res = preview_template_content(db, org_id=org_id, campaign_id=uuid.uuid4(), request=req)
+
+        assert res.booking_url == "https://cal.com/agilereceivables/30min"
+        assert "https://cal.com/agilereceivables/30min" in res.rendered_body
+        assert "{booking_link}" not in res.rendered_body
+        assert "{booking_link}" not in res.unresolved_placeholders
+        assert len(res.unresolved_placeholders) == 0
+        assert res.rendered_html is not None
+        assert 'href="https://cal.com/agilereceivables/30min"' in res.rendered_html
+        assert "Book a Meeting" in res.rendered_html
+
+
+def test_live_preview_unconfigured_org_reports_unresolved_placeholder(test_db_session: Session):
+    """Email Step Live Preview reports {booking_link} as unresolved when organization has no booking URL configured."""
+    db = test_db_session
+    unconfigured_org_id = uuid.uuid4()
+    org = Organization(id=unconfigured_org_id, name="Unconfigured Corp", slug="unconfigured-corp")
+    db.add(org)
+    db.flush()
+
+    req = TemplatePreviewRequest(
+        subject_template="Hello {contact.first_name}",
+        body_template="Hi {contact.first_name},\n\nCheck our schedule: {booking_link}\n\nRegards,\nTeam",
+    )
+    res = preview_template_content(db, org_id=unconfigured_org_id, campaign_id=uuid.uuid4(), request=req)
+
+    assert res.booking_url is None
+    assert "{booking_link}" in res.unresolved_placeholders
+    assert any("Organization has no configured meeting-booking URL" in err for err in res.validation_errors)
+
+
+def test_live_preview_tenant_isolation(test_db_session: Session):
+    """Ensure arbitrary tenants do not inherit Agile Receivables booking URL in preview."""
+    db = test_db_session
+    custom_org_id = uuid.uuid4()
+    org = Organization(id=custom_org_id, name="Acme Health", slug="acme-health")
+    db.add(org)
+    db.flush()
+
+    req = TemplatePreviewRequest(
+        subject_template="Intro",
+        body_template="Book here: {booking_link}",
+    )
+
+    # 1. Without configuration, cannot inherit Agile Receivables' URL
+    res_unconf = preview_template_content(db, org_id=custom_org_id, campaign_id=uuid.uuid4(), request=req)
+    assert res_unconf.booking_url is None
+    assert "agilereceivables" not in res_unconf.rendered_body
+    assert "{booking_link}" in res_unconf.unresolved_placeholders
+
+    # 2. When configured with tenant's own URL, resolves to tenant's own URL
+    register_organization_booking_url(custom_org_id, "https://cal.com/acme-health/demo")
+    res_conf = preview_template_content(db, org_id=custom_org_id, campaign_id=uuid.uuid4(), request=req)
+    assert res_conf.booking_url == "https://cal.com/acme-health/demo"
+    assert "https://cal.com/acme-health/demo" in res_conf.rendered_body
+    assert "agilereceivables" not in res_conf.rendered_body
+    assert len(res_conf.unresolved_placeholders) == 0
+

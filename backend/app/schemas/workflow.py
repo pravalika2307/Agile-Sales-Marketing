@@ -109,6 +109,8 @@ class TemplatePreviewResponse(BaseModel):
     """Rendered template result with preview contact and placeholder diagnostics."""
     rendered_subject: Optional[str] = None
     rendered_body: Optional[str] = None
+    rendered_html: Optional[str] = None
+    booking_url: Optional[str] = None
     unresolved_placeholders: List[str] = Field(default_factory=list)
     contact_used: Optional[Dict[str, Any]] = None
     validation_errors: List[str] = Field(default_factory=list)

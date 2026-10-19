@@ -15,13 +15,20 @@ logger = logging.getLogger(__name__)
 # Confirmed Agile Receivables Cal.com booking destination
 AGILE_RECEIVABLES_BOOKING_URL = "https://cal.com/agilereceivables/30min"
 
-# Known slugs, names, and IDs for Agile Receivables
+# Known slugs, names, and IDs for Agile Receivables and Agile Sales & Marketing tenant
 AGILE_RECEIVABLES_IDENTIFIERS = {
+    # Agile Receivables identifiers
     "agile-receivables",
     "agile-receivables-org",
     "agile receivables",
     "agile receivables org",
     "3de43e6b-6cc0-4391-a061-2faba481bcb8",
+    # Agile Sales & Marketing tenant identifiers
+    "agile-sales-marketing",
+    "agile-sales-marketing-org",
+    "agile sales & marketing",
+    "agile sales & marketing org",
+    "0d85dc9f-1520-4bcb-8af4-8aad025255cb",
 }
 
 # In-memory runtime override registry for dynamic tenant configurations and testing

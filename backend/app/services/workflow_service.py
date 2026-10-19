@@ -27,6 +27,7 @@ from app.schemas.workflow import (
 from app.services.campaign_steps.template_renderer import (
     DEFAULT_SENDER_NAME,
     find_unresolved_placeholders,
+    render_email_html,
     render_template,
 )
 from app.services.organization_config import get_organization_booking_url
@@ -496,6 +497,14 @@ def preview_template_content(
         sender_company_name=request.sender_company_name,
     )
 
+    has_booking_ph = bool(
+        request.body_template
+        and any(
+            ph in request.body_template
+            for ph in ("{booking_link}", "{{booking_link}}", "{booking_url}", "{{booking_url}}")
+        )
+    )
+
     rendered_body = render_template(
         request.body_template,
         contact=contact,
@@ -503,7 +512,11 @@ def preview_template_content(
         sender_name=request.sender_name,
         sender_company_name=request.sender_company_name,
         booking_link=booking_url,
+        enforce_booking_cta=bool(booking_url or has_booking_ph),
     )
+
+    # Render HTML version with clickable CTA
+    rendered_html = render_email_html(rendered_body, booking_url=booking_url) if rendered_body else None
 
     unresolved = []
     if rendered_subject:
@@ -513,6 +526,15 @@ def preview_template_content(
 
     # Deduplicate unresolved placeholders
     unresolved_unique = list(dict.fromkeys(unresolved))
+
+    # If the template contains a booking placeholder or requires a booking CTA but organization has no booking URL
+    if not booking_url and (has_booking_ph or (rendered_body and "{booking_link}" in rendered_body)):
+        if "{booking_link}" not in unresolved_unique and "{{booking_link}}" not in unresolved_unique:
+            unresolved_unique.append("{booking_link}")
+        booking_err = "Organization has no configured meeting-booking URL to resolve {booking_link}."
+        if booking_err not in validation_errors:
+            validation_errors.append(booking_err)
+
     if unresolved_unique:
         validation_errors.append(
             f"Templates contain unresolved placeholder(s): {', '.join(unresolved_unique)}."
@@ -530,6 +552,8 @@ def preview_template_content(
     return TemplatePreviewResponse(
         rendered_subject=rendered_subject,
         rendered_body=rendered_body,
+        rendered_html=rendered_html,
+        booking_url=booking_url,
         unresolved_placeholders=unresolved_unique,
         contact_used=contact_info,
         validation_errors=validation_errors,
