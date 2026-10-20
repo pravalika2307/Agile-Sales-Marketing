@@ -13,6 +13,7 @@ class RegisterRequest(BaseModel):
     password: str = Field(..., min_length=8, description="Password (at least 8 characters)")
     full_name: str = Field(..., min_length=1, max_length=255, description="Full name of user")
     organization_name: str = Field(..., min_length=1, max_length=255, description="Name of company/organization")
+    access_level: Optional[str] = Field("both", description="Access level: sales, marketing, or both")
 
 
 class LoginRequest(BaseModel):

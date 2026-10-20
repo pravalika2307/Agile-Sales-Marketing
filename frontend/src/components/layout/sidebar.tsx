@@ -17,7 +17,10 @@ import {
   ChevronLeft,
   ChevronRight,
   ListOrdered,
+  Sparkles,
+  Share2,
 } from "lucide-react";
+import { useAppMode } from "@/contexts/AppModeContext";
 
 export interface NavItem {
   name: string;
@@ -26,13 +29,21 @@ export interface NavItem {
   badge?: string | number;
 }
 
-export const navigationItems: NavItem[] = [
+export const salesNavigationItems: NavItem[] = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Find Leads", href: "/find-leads", icon: UserSearch, badge: "Active" },
   { name: "Leads", href: "/leads", icon: Users },
   { name: "Campaigns", href: "/campaigns", icon: Send },
   { name: "Outreach", href: "/outreach", icon: PhoneCall },
   { name: "Pipeline", href: "/pipeline", icon: KanbanSquare },
+  { name: "Analytics", href: "/analytics", icon: BarChart3 },
+];
+
+export const marketingNavigationItems: NavItem[] = [
+  { name: "Marketing Hub", href: "/", icon: LayoutDashboard, badge: "Hub" },
+  { name: "Social Media", href: "/social-media", icon: Share2, badge: "New" },
+  { name: "Campaigns", href: "/campaigns", icon: Send },
+  { name: "Audience & Lists", href: "/leads", icon: Users },
   { name: "Analytics", href: "/analytics", icon: BarChart3 },
 ];
 
@@ -53,6 +64,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className,
 }) => {
   const pathname = usePathname();
+  const { mode } = useAppMode();
+  const isMarketing = mode === "marketing";
+
+  const navigationItems = isMarketing ? marketingNavigationItems : salesNavigationItems;
 
   return (
     <aside
@@ -65,17 +80,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Brand Header */}
       <div className="h-16 flex items-center justify-between px-4 border-b border-slate-100">
         <Link href="/" className="flex items-center gap-2.5 overflow-hidden">
-          {/* Brand Mark: Agile Coral Hexagon/Square */}
-          <div className="w-8 h-8 rounded-lg bg-agile-red text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0">
+          {/* Brand Mark: Agile Coral (Sales) or Vivid Purple (Marketing) */}
+          <div
+            className={cn(
+              "w-8 h-8 rounded-lg text-white flex items-center justify-center font-bold text-sm shadow-xs shrink-0 transition-colors duration-200",
+              isMarketing ? "bg-purple-600" : "bg-agile-red"
+            )}
+          >
             A
           </div>
           {!collapsed && (
             <div className="flex flex-col truncate">
               <span className="font-bold text-sm tracking-tight text-header leading-tight">
-                Agile <span className="text-agile-red font-medium">S&M</span>
+                Agile{" "}
+                <span
+                  className={cn(
+                    "font-medium transition-colors",
+                    isMarketing ? "text-purple-600" : "text-agile-red"
+                  )}
+                >
+                  {isMarketing ? "Marketing" : "S&M"}
+                </span>
               </span>
               <span className="text-[10px] text-slate-400 font-medium tracking-wide">
-                Sales & Marketing
+                {isMarketing ? "Marketing Platform" : "Sales & Marketing"}
               </span>
             </div>
           )}
@@ -112,7 +140,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className={cn(
                   "group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 relative",
                   isActive
-                    ? "bg-agile-lightorange text-agile-red border border-agile-outlinered/40 font-semibold shadow-xs"
+                    ? isMarketing
+                      ? "bg-purple-50 text-purple-700 border border-purple-200/60 font-semibold shadow-xs"
+                      : "bg-agile-lightorange text-agile-red border border-agile-outlinered/40 font-semibold shadow-xs"
                     : "text-slate-600 hover:text-header hover:bg-slate-50 border border-transparent"
                 )}
               >
@@ -120,7 +150,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={cn(
                     "w-4 h-4 shrink-0 transition-colors",
                     isActive
-                      ? "text-agile-red"
+                      ? isMarketing
+                        ? "text-purple-600"
+                        : "text-agile-red"
                       : "text-slate-400 group-hover:text-slate-600"
                   )}
                 />
@@ -132,7 +164,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     className={cn(
                       "text-[10px] font-semibold px-1.5 py-0.2 rounded shrink-0",
                       isActive
-                        ? "bg-agile-red text-white"
+                        ? isMarketing
+                          ? "bg-purple-600 text-white"
+                          : "bg-agile-red text-white"
                         : "bg-slate-100 text-slate-500"
                     )}
                   >

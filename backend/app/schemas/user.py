@@ -27,5 +27,6 @@ class UserResponse(BaseModel):
     email: str
     full_name: str
     role: str
+    access_level: str = "both"
     is_active: bool
     created_at: datetime

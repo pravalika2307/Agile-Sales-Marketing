@@ -687,3 +687,53 @@ async def test_cross_tenant_isolation_across_all_entities(test_db_session: Sessi
         assert overview["leads"]["total_leads"] == 0
 
 
+@pytest.mark.asyncio
+async def test_user_registration_access_level_assignment_and_default(test_db_session):
+    """Verify access_level defaults to 'both' and can be explicitly configured on registration."""
+    async with make_test_client() as client:
+        # Default registration: access_level defaults to 'both'
+        resp1 = await client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "default_user@agiletest.com",
+                "password": "Password123!",
+                "full_name": "Default User",
+                "organization_name": "Default Org",
+            },
+        )
+        assert resp1.status_code == 201
+        data1 = resp1.json()
+        assert data1["user"]["access_level"] == "both"
+
+        # Explicit sales only
+        resp2 = await client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "sales_user@agiletest.com",
+                "password": "Password123!",
+                "full_name": "Sales User",
+                "organization_name": "Sales Org",
+                "access_level": "sales",
+            },
+        )
+        assert resp2.status_code == 201
+        data2 = resp2.json()
+        assert data2["user"]["access_level"] == "sales"
+
+        # Explicit marketing only
+        resp3 = await client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "mkt_user@agiletest.com",
+                "password": "Password123!",
+                "full_name": "Marketing User",
+                "organization_name": "Marketing Org",
+                "access_level": "marketing",
+            },
+        )
+        assert resp3.status_code == 201
+        data3 = resp3.json()
+        assert data3["user"]["access_level"] == "marketing"
+
+
+
