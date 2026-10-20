@@ -336,6 +336,10 @@ function LeadsPageContent() {
       setCreateLeadError("First name and Company name are required.");
       return;
     }
+    if (!newLeadForm.email.trim()) {
+      setCreateLeadError("Email is required.");
+      return;
+    }
     setIsCreatingLead(true);
     setCreateLeadError(null);
     try {
@@ -812,11 +816,17 @@ function LeadsPageContent() {
 
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="text-xs font-semibold text-slate-700">Email</label>
+              <label className="text-xs font-semibold text-slate-700">Email *</label>
               <Input
                 placeholder="jane@company.com"
                 value={newLeadForm.email}
-                onChange={(e) => setNewLeadForm({ ...newLeadForm, email: e.target.value })}
+                error={createLeadError === "Email is required." ? createLeadError : undefined}
+                onChange={(e) => {
+                  setNewLeadForm({ ...newLeadForm, email: e.target.value });
+                  if (createLeadError === "Email is required.") {
+                    setCreateLeadError(null);
+                  }
+                }}
                 className="mt-1 h-8 text-xs"
               />
             </div>
