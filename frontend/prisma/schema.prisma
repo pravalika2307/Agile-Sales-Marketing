@@ -1,0 +1,704 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model alembic_version {
+  version_num String @id(map: "alembic_version_pkc") @db.VarChar(32)
+}
+
+model business_profiles {
+  id                     String        @id(map: "pk_business_profiles") @db.Uuid
+  organization_id        String        @unique(map: "ix_business_profiles_organization_id") @db.Uuid
+  company_name           String        @db.VarChar(255)
+  industry               String?       @db.VarChar(255)
+  target_icp_description String?
+  value_proposition      String?
+  website_url            String?       @db.VarChar(500)
+  created_at             DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime      @default(now()) @db.Timestamptz(6)
+  organizations          organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_business_profiles_organization_id_organizations")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model call_records {
+  id                                                String        @id @db.Uuid
+  organization_id                                   String        @db.Uuid
+  contact_id                                        String?       @db.Uuid
+  lead_id                                           String?       @db.Uuid
+  campaign_id                                       String?       @db.Uuid
+  call_id                                           String        @unique(map: "ix_call_records_call_id") @db.VarChar(100)
+  agent_id                                          String        @db.VarChar(100)
+  direction                                         String        @default("inbound") @db.VarChar(20)
+  call_status                                       String        @default("ended") @db.VarChar(50)
+  call_outcome                                      String?       @db.VarChar(50)
+  caller_phone                                      String?       @db.VarChar(50)
+  to_phone                                          String?       @db.VarChar(50)
+  duration_ms                                       Int?
+  disconnection_reason                              String?       @db.VarChar(100)
+  summary                                           String?
+  transcript                                        String?
+  collected_variables                               Json?         @db.Json
+  call_analysis                                     Json?         @db.Json
+  metadata_json                                     Json?         @db.Json
+  followup_status                                   String        @default("none") @db.VarChar(50)
+  followup_reason                                   String?       @db.VarChar(255)
+  followup_email_id                                 String?       @db.Uuid
+  followup_idempotency_key                          String?       @unique(map: "ix_call_records_followup_idempotency_key") @db.VarChar(255)
+  started_at                                        DateTime?     @db.Timestamptz(6)
+  ended_at                                          DateTime?     @db.Timestamptz(6)
+  analyzed_at                                       DateTime?     @db.Timestamptz(6)
+  created_at                                        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at                                        DateTime      @default(now()) @db.Timestamptz(6)
+  campaigns                                         campaigns?    @relation(fields: [campaign_id], references: [id], onUpdate: NoAction)
+  contacts                                          contacts?     @relation(fields: [contact_id], references: [id], onUpdate: NoAction)
+  outreach_call_records_followup_email_idTooutreach outreach?     @relation("call_records_followup_email_idTooutreach", fields: [followup_email_id], references: [id], onUpdate: NoAction)
+  leads                                             leads?        @relation(fields: [lead_id], references: [id], onUpdate: NoAction)
+  organizations                                     organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  outreach_outreach_call_record_idTocall_records    outreach[]    @relation("outreach_call_record_idTocall_records")
+
+  @@index([agent_id], map: "ix_call_records_agent_id")
+  @@index([call_outcome], map: "ix_call_records_call_outcome")
+  @@index([campaign_id], map: "ix_call_records_campaign_id")
+  @@index([contact_id], map: "ix_call_records_contact_id")
+  @@index([followup_email_id], map: "ix_call_records_followup_email_id")
+  @@index([followup_status], map: "ix_call_records_followup_status")
+  @@index([lead_id], map: "ix_call_records_lead_id")
+  @@index([organization_id, call_id], map: "ix_call_records_org_call")
+  @@index([organization_id, call_outcome], map: "ix_call_records_org_outcome")
+  @@index([organization_id], map: "ix_call_records_organization_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model campaign_contacts {
+  id                String     @id(map: "pk_campaign_contacts") @db.Uuid
+  campaign_id       String     @db.Uuid
+  contact_id        String     @db.Uuid
+  enrollment_status String     @default("queued") @db.VarChar(50)
+  current_step      Int        @default(0)
+  enrolled_at       DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime   @default(now()) @db.Timestamptz(6)
+  campaigns         campaigns  @relation(fields: [campaign_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_campaign_contacts_campaign_id_campaigns")
+  contacts          contacts   @relation(fields: [contact_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_campaign_contacts_contact_id_contacts")
+  outreach          outreach[]
+
+  @@unique([campaign_id, contact_id], map: "uq_campaign_contact")
+  @@index([campaign_id], map: "ix_campaign_contacts_campaign_id")
+  @@index([contact_id], map: "ix_campaign_contacts_contact_id")
+  @@index([enrollment_status], map: "ix_campaign_contacts_enrollment_status")
+}
+
+model campaign_lists {
+  id              String        @id @db.Uuid
+  campaign_id     String        @db.Uuid
+  contact_list_id String        @db.Uuid
+  associated_at   DateTime      @db.Timestamptz(6)
+  campaigns       campaigns     @relation(fields: [campaign_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  contact_lists   contact_lists @relation(fields: [contact_list_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([campaign_id, contact_list_id], map: "uq_campaign_lists_campaign_list")
+  @@index([campaign_id], map: "ix_campaign_lists_campaign_id")
+  @@index([contact_list_id], map: "ix_campaign_lists_list_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model campaign_steps {
+  id               String        @id @db.Uuid
+  organization_id  String        @db.Uuid
+  campaign_id      String        @db.Uuid
+  step_number      Int
+  step_type        String        @default("email") @db.VarChar(50)
+  subject_template String?       @db.VarChar(500)
+  body_template    String?
+  delay_days       Int           @default(0)
+  delay_hours      Int           @default(0)
+  is_active        Boolean       @default(true)
+  created_at       DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime      @default(now()) @db.Timestamptz(6)
+  campaigns        campaigns     @relation(fields: [campaign_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organizations    organizations @relation(fields: [organization_id], references: [id], onUpdate: NoAction)
+
+  @@unique([campaign_id, step_number], map: "uq_campaign_steps_campaign_step_number")
+  @@index([campaign_id], map: "ix_campaign_steps_campaign_id")
+  @@index([is_active], map: "ix_campaign_steps_is_active")
+  @@index([organization_id], map: "ix_campaign_steps_organization_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model campaigns {
+  id                String              @id(map: "pk_campaigns") @db.Uuid
+  organization_id   String              @db.Uuid
+  name              String              @db.VarChar(255)
+  type              String              @db.VarChar(50)
+  status            String              @default("draft") @db.VarChar(50)
+  schedule_settings Json?               @db.Json
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime            @default(now()) @db.Timestamptz(6)
+  description       String?
+  workflow_config   Json?               @db.Json
+  call_records      call_records[]
+  campaign_contacts campaign_contacts[]
+  campaign_lists    campaign_lists[]
+  campaign_steps    campaign_steps[]
+  organizations     organizations       @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_campaigns_organization_id_organizations")
+  outreach          outreach[]
+
+  @@index([organization_id], map: "ix_campaigns_organization_id")
+  @@index([status], map: "ix_campaigns_status")
+}
+
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model companies {
+  id                   String        @id(map: "pk_companies") @db.Uuid
+  organization_id      String        @db.Uuid
+  name                 String        @db.VarChar(255)
+  domain               String?       @db.VarChar(255)
+  industry             String?       @db.VarChar(255)
+  employee_count_range String?       @db.VarChar(100)
+  city                 String?       @db.VarChar(100)
+  country              String?       @db.VarChar(100)
+  created_at           DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime      @default(now()) @db.Timestamptz(6)
+  hubspot_id           String?       @db.VarChar(100)
+  organizations        organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_companies_organization_id_organizations")
+  contacts             contacts[]
+  deals                deals[]
+  leads                leads[]
+
+  @@unique([organization_id, hubspot_id], map: "uq_companies_org_hubspot_id", where: raw("(hubspot_id IS NOT NULL)"))
+  @@index([hubspot_id], map: "ix_companies_hubspot_id")
+  @@index([name], map: "ix_companies_name")
+  @@index([organization_id, hubspot_id], map: "ix_companies_org_hubspot_id")
+  @@index([organization_id], map: "ix_companies_organization_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model contact_list_members {
+  id              String        @id @db.Uuid
+  contact_list_id String        @db.Uuid
+  contact_id      String?       @db.Uuid
+  lead_id         String?       @db.Uuid
+  added_at        DateTime      @db.Timestamptz(6)
+  contacts        contacts?     @relation(fields: [contact_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  contact_lists   contact_lists @relation(fields: [contact_list_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  leads           leads?        @relation(fields: [lead_id], references: [id], onUpdate: NoAction)
+
+  @@unique([contact_list_id, contact_id], map: "uq_list_member_contact", where: raw("(contact_id IS NOT NULL)"))
+  @@unique([contact_list_id, lead_id], map: "uq_list_member_lead", where: raw("(lead_id IS NOT NULL)"))
+  @@index([contact_id], map: "ix_contact_list_members_contact_id")
+  @@index([lead_id], map: "ix_contact_list_members_lead_id")
+  @@index([contact_list_id], map: "ix_contact_list_members_list_id")
+}
+
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model contact_lists {
+  id                   String                 @id @db.Uuid
+  organization_id      String                 @db.Uuid
+  name                 String                 @db.VarChar(255)
+  description          String?
+  type                 String                 @default("static") @db.VarChar(50)
+  filter_criteria      Json?                  @db.Json
+  created_at           DateTime               @db.Timestamptz(6)
+  updated_at           DateTime               @db.Timestamptz(6)
+  campaign_lists       campaign_lists[]
+  contact_list_members contact_list_members[]
+  organizations        organizations          @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([organization_id], map: "ix_contact_lists_org_id")
+}
+
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model contacts {
+  id                   String                 @id(map: "pk_contacts") @db.Uuid
+  organization_id      String                 @db.Uuid
+  company_id           String?                @db.Uuid
+  email                String                 @db.VarChar(255)
+  first_name           String                 @db.VarChar(100)
+  last_name            String                 @db.VarChar(100)
+  phone                String?                @db.VarChar(50)
+  job_title            String?                @db.VarChar(150)
+  lead_status          String                 @default("new") @db.VarChar(50)
+  created_at           DateTime               @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime               @default(now()) @db.Timestamptz(6)
+  hubspot_id           String?                @db.VarChar(100)
+  call_records         call_records[]
+  campaign_contacts    campaign_contacts[]
+  contact_list_members contact_list_members[]
+  companies            companies?             @relation(fields: [company_id], references: [id], onUpdate: NoAction, map: "fk_contacts_company_id_companies")
+  organizations        organizations          @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_contacts_organization_id_organizations")
+  deals                deals[]
+  leads                leads[]
+  outreach             outreach[]
+
+  @@unique([organization_id, hubspot_id], map: "uq_contacts_org_hubspot_id", where: raw("(hubspot_id IS NOT NULL)"))
+  @@index([company_id], map: "ix_contacts_company_id")
+  @@index([email], map: "ix_contacts_email")
+  @@index([hubspot_id], map: "ix_contacts_hubspot_id")
+  @@index([organization_id, email], map: "ix_contacts_org_email")
+  @@index([organization_id, hubspot_id], map: "ix_contacts_org_hubspot_id")
+  @@index([organization_id], map: "ix_contacts_organization_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model deals {
+  id                  String          @id(map: "pk_deals") @db.Uuid
+  organization_id     String          @db.Uuid
+  pipeline_stage_id   String          @db.Uuid
+  contact_id          String?         @db.Uuid
+  company_id          String?         @db.Uuid
+  name                String          @db.VarChar(255)
+  amount              Decimal         @default(0.00) @db.Decimal(14, 2)
+  expected_close_date DateTime?       @db.Date
+  status              String          @default("open") @db.VarChar(50)
+  created_at          DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime        @default(now()) @db.Timestamptz(6)
+  hubspot_id          String?         @db.VarChar(100)
+  companies           companies?      @relation(fields: [company_id], references: [id], onUpdate: NoAction, map: "fk_deals_company_id_companies")
+  contacts            contacts?       @relation(fields: [contact_id], references: [id], onUpdate: NoAction, map: "fk_deals_contact_id_contacts")
+  organizations       organizations   @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_deals_organization_id_organizations")
+  pipeline_stages     pipeline_stages @relation(fields: [pipeline_stage_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_deals_pipeline_stage_id_pipeline_stages")
+
+  @@index([company_id], map: "ix_deals_company_id")
+  @@index([contact_id], map: "ix_deals_contact_id")
+  @@index([hubspot_id], map: "ix_deals_hubspot_id")
+  @@index([organization_id, hubspot_id], map: "ix_deals_org_hubspot_id")
+  @@index([organization_id], map: "ix_deals_organization_id")
+  @@index([pipeline_stage_id], map: "ix_deals_pipeline_stage_id")
+  @@index([status], map: "ix_deals_status")
+}
+
+model email_templates {
+  id               String        @id @db.Uuid
+  organization_id  String        @db.Uuid
+  name             String        @db.VarChar(255)
+  description      String?
+  category         String        @default("outbound") @db.VarChar(50)
+  subject_template String
+  body_template    String
+  is_active        Boolean       @default(true)
+  created_at       DateTime      @db.Timestamptz(6)
+  updated_at       DateTime      @db.Timestamptz(6)
+  organizations    organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([organization_id, category], map: "ix_email_templates_org_category")
+  @@index([organization_id], map: "ix_email_templates_org_id")
+  @@index([organization_id, name], map: "ix_email_templates_org_name")
+}
+
+model hubspot_sync_runs {
+  id                String        @id @db.Uuid
+  organization_id   String        @db.Uuid
+  status            String        @default("completed") @db.VarChar(50)
+  contacts_count    Int           @default(0)
+  companies_count   Int           @default(0)
+  deals_count       Int           @default(0)
+  portal_id         String?       @db.VarChar(50)
+  permission_errors Json?         @db.Json
+  error_message     String?
+  started_at        DateTime      @db.Timestamptz(6)
+  completed_at      DateTime?     @db.Timestamptz(6)
+  created_at        DateTime      @db.Timestamptz(6)
+  organizations     organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([created_at], map: "ix_hubspot_sync_runs_created_at")
+  @@index([organization_id], map: "ix_hubspot_sync_runs_org_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model ideal_customer_profiles {
+  id               String        @id @db.Uuid
+  organization_id  String        @db.Uuid
+  name             String        @db.VarChar(255)
+  description      String?
+  industries       Json?         @db.Json
+  company_size_min Int?
+  company_size_max Int?
+  countries        Json?         @db.Json
+  cities           Json?         @db.Json
+  company_domains  Json?         @db.Json
+  job_titles       Json?         @db.Json
+  seniority_levels Json?         @db.Json
+  departments      Json?         @db.Json
+  technologies     Json?         @db.Json
+  keywords         Json?         @db.Json
+  is_active        Boolean       @default(true)
+  created_at       DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime      @default(now()) @db.Timestamptz(6)
+  organizations    organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  leads            leads[]
+
+  @@index([is_active], map: "ix_ideal_customer_profiles_is_active")
+  @@index([organization_id], map: "ix_ideal_customer_profiles_organization_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model lead_researches {
+  id                     String        @id @db.Uuid
+  organization_id        String        @db.Uuid
+  lead_id                String        @db.Uuid
+  company_summary        String?
+  industry               String?       @db.VarChar(150)
+  company_size           String?       @db.VarChar(100)
+  location               String?       @db.VarChar(255)
+  business_signals       Json          @default("[]") @db.Json
+  potential_pain_points  Json          @default("[]") @db.Json
+  personalization_points Json          @default("[]") @db.Json
+  research_summary       String?
+  source_urls            Json          @default("[]") @db.Json
+  researched_at          DateTime      @default(now()) @db.Timestamptz(6)
+  research_status        String        @default("completed") @db.VarChar(50)
+  error_message          String?
+  created_at             DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime      @default(now()) @db.Timestamptz(6)
+  leads                  leads         @relation(fields: [lead_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organizations          organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([organization_id, lead_id], map: "uq_lead_researches_org_lead")
+  @@index([industry], map: "ix_lead_researches_industry")
+  @@index([lead_id], map: "ix_lead_researches_lead_id")
+  @@index([organization_id], map: "ix_lead_researches_organization_id")
+  @@index([research_status], map: "ix_lead_researches_research_status")
+  @@index([researched_at], map: "ix_lead_researches_researched_at")
+}
+
+model lead_routing_rules {
+  id                     String        @id @db.Uuid
+  organization_id        String        @db.Uuid
+  name                   String        @db.VarChar(255)
+  description            String?
+  priority               Int           @default(1)
+  is_active              Boolean       @default(true)
+  industries             Json?         @db.Json
+  company_size_min       Int?
+  company_size_max       Int?
+  countries              Json?         @db.Json
+  cities                 Json?         @db.Json
+  min_score              Int?
+  max_score              Int?
+  qualification_statuses Json?         @db.Json
+  assigned_to_user_id    String?       @db.Uuid
+  assigned_team          String?       @db.VarChar(100)
+  created_at             DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime      @default(now()) @db.Timestamptz(6)
+  users                  users?        @relation(fields: [assigned_to_user_id], references: [id], onUpdate: NoAction)
+  organizations          organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  leads                  leads[]
+
+  @@index([assigned_to_user_id], map: "ix_lead_routing_rules_assigned_to_user_id")
+  @@index([is_active], map: "ix_lead_routing_rules_is_active")
+  @@index([organization_id], map: "ix_lead_routing_rules_organization_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model leads {
+  id                      String                   @id @db.Uuid
+  organization_id         String                   @db.Uuid
+  icp_id                  String?                  @db.Uuid
+  company_id              String?                  @db.Uuid
+  contact_id              String?                  @db.Uuid
+  source                  String                   @default("mock") @db.VarChar(100)
+  source_external_id      String?                  @db.VarChar(255)
+  company_name            String                   @db.VarChar(255)
+  company_domain          String?                  @db.VarChar(255)
+  industry                String?                  @db.VarChar(100)
+  employee_count_range    String?                  @db.VarChar(50)
+  city                    String?                  @db.VarChar(100)
+  country                 String?                  @db.VarChar(100)
+  first_name              String?                  @db.VarChar(100)
+  last_name               String?                  @db.VarChar(100)
+  email                   String?                  @db.VarChar(255)
+  phone                   String?                  @db.VarChar(50)
+  job_title               String?                  @db.VarChar(255)
+  qualification_status    String                   @default("new") @db.VarChar(50)
+  lead_temperature        String                   @default("cold") @db.VarChar(20)
+  lead_score              Int                      @default(0)
+  qualification_reason    String?
+  status                  String                   @default("new") @db.VarChar(50)
+  created_at              DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                 @default(now()) @db.Timestamptz(6)
+  assigned_to_user_id     String?                  @db.Uuid
+  routing_rule_id         String?                  @db.Uuid
+  routed_at               DateTime?                @db.Timestamptz(6)
+  routing_notes           String?
+  call_records            call_records[]
+  contact_list_members    contact_list_members[]
+  lead_researches         lead_researches[]
+  users                   users?                   @relation(fields: [assigned_to_user_id], references: [id], onUpdate: NoAction, map: "fk_leads_assigned_to_user")
+  lead_routing_rules      lead_routing_rules?      @relation(fields: [routing_rule_id], references: [id], onUpdate: NoAction, map: "fk_leads_routing_rule")
+  companies               companies?               @relation(fields: [company_id], references: [id], onUpdate: NoAction)
+  contacts                contacts?                @relation(fields: [contact_id], references: [id], onUpdate: NoAction)
+  ideal_customer_profiles ideal_customer_profiles? @relation(fields: [icp_id], references: [id], onUpdate: NoAction)
+  organizations           organizations            @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([organization_id, source, source_external_id], map: "uq_leads_org_source_ext")
+  @@index([assigned_to_user_id], map: "ix_leads_assigned_to_user_id")
+  @@index([city], map: "ix_leads_city")
+  @@index([company_domain], map: "ix_leads_company_domain")
+  @@index([company_id], map: "ix_leads_company_id")
+  @@index([contact_id], map: "ix_leads_contact_id")
+  @@index([country], map: "ix_leads_country")
+  @@index([email], map: "ix_leads_email")
+  @@index([icp_id], map: "ix_leads_icp_id")
+  @@index([industry], map: "ix_leads_industry")
+  @@index([job_title], map: "ix_leads_job_title")
+  @@index([lead_score], map: "ix_leads_lead_score")
+  @@index([lead_temperature], map: "ix_leads_lead_temperature")
+  @@index([organization_id], map: "ix_leads_organization_id")
+  @@index([qualification_status], map: "ix_leads_qualification_status")
+  @@index([routing_rule_id], map: "ix_leads_routing_rule_id")
+  @@index([source], map: "ix_leads_source")
+  @@index([status], map: "ix_leads_status")
+}
+
+model organizations {
+  id                      String                    @id(map: "pk_organizations") @db.Uuid
+  name                    String                    @db.VarChar(255)
+  slug                    String                    @unique(map: "ix_organizations_slug") @db.VarChar(255)
+  billing_status          String                    @default("trial") @db.VarChar(50)
+  created_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime                  @default(now()) @db.Timestamptz(6)
+  business_profiles       business_profiles?
+  call_records            call_records[]
+  campaign_steps          campaign_steps[]
+  campaigns               campaigns[]
+  companies               companies[]
+  contact_lists           contact_lists[]
+  contacts                contacts[]
+  deals                   deals[]
+  email_templates         email_templates[]
+  hubspot_sync_runs       hubspot_sync_runs[]
+  ideal_customer_profiles ideal_customer_profiles[]
+  lead_researches         lead_researches[]
+  lead_routing_rules      lead_routing_rules[]
+  leads                   leads[]
+  outreach                outreach[]
+  outreach_events         outreach_events[]
+  pipelines               pipelines[]
+  users                   users[]
+  monthly_targets         MonthlyTarget[]
+  posts                   Post[]
+  ai_insights             AiInsight[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model outreach {
+  id                                                    String             @id(map: "pk_outreach") @db.Uuid
+  organization_id                                       String             @db.Uuid
+  campaign_id                                           String?            @db.Uuid
+  contact_id                                            String?            @db.Uuid
+  campaign_contact_id                                   String?            @db.Uuid
+  channel                                               String             @default("email") @db.VarChar(50)
+  status                                                String             @default("draft") @db.VarChar(50)
+  subject                                               String?            @db.VarChar(255)
+  body                                                  String?
+  provider                                              String?            @db.VarChar(100)
+  provider_message_id                                   String?            @db.VarChar(255)
+  scheduled_at                                          DateTime?          @db.Timestamptz(6)
+  sent_at                                               DateTime?          @db.Timestamptz(6)
+  created_at                                            DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at                                            DateTime           @default(now()) @db.Timestamptz(6)
+  first_delivered_at                                    DateTime?          @db.Timestamptz(6)
+  first_opened_at                                       DateTime?          @db.Timestamptz(6)
+  first_clicked_at                                      DateTime?          @db.Timestamptz(6)
+  first_replied_at                                      DateTime?          @db.Timestamptz(6)
+  first_bounced_at                                      DateTime?          @db.Timestamptz(6)
+  call_record_id                                        String?            @db.Uuid
+  recipient                                             String?            @db.VarChar(255)
+  call_records_call_records_followup_email_idTooutreach call_records[]     @relation("call_records_followup_email_idTooutreach")
+  call_records_outreach_call_record_idTocall_records    call_records?      @relation("outreach_call_record_idTocall_records", fields: [call_record_id], references: [id], onUpdate: NoAction, map: "fk_outreach_call_record_id")
+  campaign_contacts                                     campaign_contacts? @relation(fields: [campaign_contact_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_outreach_campaign_contact_id_campaign_contacts")
+  campaigns                                             campaigns?         @relation(fields: [campaign_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_outreach_campaign_id_campaigns")
+  contacts                                              contacts?          @relation(fields: [contact_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_outreach_contact_id_contacts")
+  organizations                                         organizations      @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_outreach_organization_id_organizations")
+  outreach_events                                       outreach_events[]
+
+  @@index([call_record_id], map: "ix_outreach_call_record_id")
+  @@index([campaign_contact_id], map: "ix_outreach_campaign_contact_id")
+  @@index([campaign_id], map: "ix_outreach_campaign_id")
+  @@index([contact_id], map: "ix_outreach_contact_id")
+  @@index([organization_id], map: "ix_outreach_organization_id")
+  @@index([status], map: "ix_outreach_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model outreach_events {
+  id              String        @id(map: "pk_outreach_events") @db.Uuid
+  organization_id String        @db.Uuid
+  outreach_id     String        @db.Uuid
+  event_type      String        @db.VarChar(50)
+  event_metadata  Json?         @db.Json
+  occurred_at     DateTime      @default(now()) @db.Timestamptz(6)
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  organizations   organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_outreach_events_organization_id_organizations")
+  outreach        outreach      @relation(fields: [outreach_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_outreach_events_outreach_id_outreach")
+
+  @@index([event_type], map: "ix_outreach_events_event_type")
+  @@index([outreach_id, occurred_at], map: "ix_outreach_events_occurred")
+  @@index([organization_id, event_type], map: "ix_outreach_events_org_type")
+  @@index([organization_id], map: "ix_outreach_events_organization_id")
+  @@index([outreach_id], map: "ix_outreach_events_outreach_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model pipeline_stages {
+  id              String    @id(map: "pk_pipeline_stages") @db.Uuid
+  pipeline_id     String    @db.Uuid
+  name            String    @db.VarChar(255)
+  order_index     Int       @default(0)
+  probability_pct Int       @default(0)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime  @default(now()) @db.Timestamptz(6)
+  deals           deals[]
+  pipelines       pipelines @relation(fields: [pipeline_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pipeline_stages_pipeline_id_pipelines")
+
+  @@index([pipeline_id], map: "ix_pipeline_stages_pipeline_id")
+  @@index([pipeline_id, order_index], map: "ix_pipeline_stages_pipeline_order")
+}
+
+model pipelines {
+  id              String            @id(map: "pk_pipelines") @db.Uuid
+  organization_id String            @db.Uuid
+  name            String            @db.VarChar(255)
+  is_default      Boolean           @default(false)
+  created_at      DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime          @default(now()) @db.Timestamptz(6)
+  pipeline_stages pipeline_stages[]
+  organizations   organizations     @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_pipelines_organization_id_organizations")
+
+  @@index([organization_id], map: "ix_pipelines_organization_id")
+}
+
+model users {
+  id                 String               @id(map: "pk_users") @db.Uuid
+  organization_id    String               @db.Uuid
+  email              String               @unique(map: "ix_users_email") @db.VarChar(255)
+  hashed_password    String               @db.VarChar(255)
+  full_name          String               @db.VarChar(255)
+  role               String               @default("member") @db.VarChar(50)
+  is_active          Boolean              @default(true)
+  created_at         DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime             @default(now()) @db.Timestamptz(6)
+  access_level       String               @default("both") @db.VarChar(20)
+  lead_routing_rules lead_routing_rules[]
+  leads              leads[]
+  organizations      organizations        @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_users_organization_id_organizations")
+
+  @@index([organization_id], map: "ix_users_organization_id")
+}
+
+// ============================================================================
+// Marketing Automation Enums & Models
+// ============================================================================
+
+enum Platform {
+  LINKEDIN
+  INSTAGRAM
+  FACEBOOK
+  X
+}
+
+enum PostStatus {
+  BACKLOG
+  IN_PROGRESS
+  AWAITING_APPROVAL
+  SCHEDULED
+  POSTED
+}
+
+enum PostFormat {
+  SINGLE_IMAGE
+  VIDEO
+  CAROUSEL
+}
+
+/// Stores the monthly baseline and compound growth goals.
+model MonthlyTarget {
+  id                 String        @id @default(uuid()) @db.Uuid
+  clientId           String        @map("client_id") @db.Uuid
+  monthYear          String        @map("month_year") @db.VarChar(50)
+  postsPlanned       Int           @map("posts_planned")
+  impressionsTarget  Int           @map("impressions_target")
+  reachTarget        Int           @map("reach_target")
+  avgErTarget        Float         @map("avg_er_target")
+  linkClicksTarget   Int           @map("link_clicks_target")
+  demoRequestsTarget Int           @map("demo_requests_target")
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization       organizations @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([clientId])
+  @@index([monthYear])
+  @@map("monthly_targets")
+}
+
+/// Powers the Kanban board and tracks AI workflow states.
+model Post {
+  id                    String         @id @default(uuid()) @db.Uuid
+  clientId              String         @map("client_id") @db.Uuid
+  platform              Platform
+  externalPostId        String?        @map("external_post_id") @db.VarChar(255)
+  status                PostStatus     @default(BACKLOG)
+  contentPillar         String         @map("content_pillar") @db.VarChar(255)
+  topic                 String         @db.VarChar(255)
+  format                PostFormat
+  caption               String         @db.Text
+  permalink             String?        @db.Text
+  scheduledDate         DateTime?      @map("scheduled_date") @db.Timestamptz(6)
+  aiCost                Float?         @map("ai_cost")
+  regenerationRequested Boolean        @default(false) @map("regeneration_requested")
+  imageChangeRequested  Boolean        @default(false) @map("image_change_requested")
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization          organizations  @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  analytics             PostAnalytics?
+
+  @@index([clientId])
+  @@index([status])
+  @@index([platform])
+  @@index([scheduledDate])
+  @@map("posts")
+}
+
+/// Frequent metadata updates triggered by n8n webhooks.
+model PostAnalytics {
+  id              String   @id @default(uuid()) @db.Uuid
+  postId          String   @unique @map("post_id") @db.Uuid
+  impressions     Int      @default(0)
+  reach           Int      @default(0)
+  likes           Int      @default(0)
+  comments        Int      @default(0)
+  shares          Int      @default(0)
+  saves           Int      @default(0)
+  totalEngagement Int      @default(0) @map("total_engagement")
+  engagementRate  Float    @default(0.0) @map("engagement_rate")
+  profileVisits   Int      @default(0) @map("profile_visits")
+  linkClicks      Int      @default(0) @map("link_clicks")
+  lastUpdated     DateTime @default(now()) @updatedAt @map("last_updated") @db.Timestamptz(6)
+
+  post            Post     @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([postId])
+  @@map("post_analytics")
+}
+
+/// Weekly automated "So-What?" reports generated by the LLM.
+model AiInsight {
+  id            String        @id @default(uuid()) @db.Uuid
+  clientId      String        @map("client_id") @db.Uuid
+  insightText   String        @map("insight_text") @db.Text
+  category      String        @db.VarChar(255)
+  dateGenerated DateTime      @default(now()) @map("date_generated") @db.Timestamptz(6)
+
+  organization  organizations @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([clientId])
+  @@index([dateGenerated])
+  @@map("ai_insights")
+}
