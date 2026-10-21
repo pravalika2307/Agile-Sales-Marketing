@@ -19,6 +19,8 @@ import {
   Shield,
   Building,
 } from "lucide-react";
+import { ModeToggle } from "./mode-toggle";
+import { useAppMode } from "@/contexts/AppModeContext";
 
 export interface HeaderProps {
   onToggleMobileMenu?: () => void;
@@ -44,6 +46,9 @@ export const Header: React.FC<HeaderProps> = ({
   className,
   onNewCampaignClick,
 }) => {
+  const { mode } = useAppMode();
+  const isMarketing = mode === "marketing";
+
   const [userMenuOpen, setUserMenuOpen] = React.useState(false);
   const [profileModalOpen, setProfileModalOpen] = React.useState(false);
   const [signedOut, setSignedOut] = React.useState(false);
@@ -130,8 +135,8 @@ export const Header: React.FC<HeaderProps> = ({
         className
       )}
     >
-      {/* Left: Mobile Menu button + Global Search */}
-      <div className="flex items-center gap-3 flex-1 max-w-md">
+      {/* Left: Mobile Menu button + Mode Toggle + Global Search */}
+      <div className="flex items-center gap-3 flex-1 max-w-xl">
         {onToggleMobileMenu && (
           <button
             type="button"
@@ -143,10 +148,17 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        <div className="w-full relative">
+        {/* Top-Left Application Domain Mode Switch (Sales vs Marketing) */}
+        <ModeToggle size="sm" />
+
+        <div className="w-full relative max-w-md hidden sm:block">
           <Input
             icon={<Search className="w-4 h-4" />}
-            placeholder="Search leads, campaigns, call logs..."
+            placeholder={
+              isMarketing
+                ? "Search audiences, campaigns, social posts, templates..."
+                : "Search leads, campaigns, call logs..."
+            }
             className="h-9 text-xs md:text-sm bg-slate-50/60 border-slate-200 focus:bg-white"
           />
         </div>

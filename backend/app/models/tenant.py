@@ -151,6 +151,11 @@ class User(Base):
         default="member",
         nullable=False,
     )
+    access_level: Mapped[str] = mapped_column(
+        String(20),
+        default="both",
+        nullable=False,
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,

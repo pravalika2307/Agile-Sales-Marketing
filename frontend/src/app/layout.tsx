@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   description: "Enterprise B2B sales and marketing platform with Retell AI voice orchestration and automated outreach.",
 };
 
+import { AppModeProvider } from "@/contexts/AppModeContext";
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
@@ -24,7 +26,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col" suppressHydrationWarning>{children}</body>
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>
+        <AppModeProvider>{children}</AppModeProvider>
+      </body>
     </html>
   );
 }
