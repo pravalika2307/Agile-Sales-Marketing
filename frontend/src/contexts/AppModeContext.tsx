@@ -54,16 +54,32 @@ export const AppModeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } else if (resolvedAccess === "marketing") {
       setModeState("marketing");
     } else {
-      // User has "both" access: load preference from localStorage or default to "sales"
+      // User has "both" access: check URL parameter, path, or stored preference
       try {
-        const saved = localStorage.getItem(STORAGE_KEY) as AppMode | null;
-        if (saved === "marketing" || saved === "sales") {
-          setModeState(saved);
+        const params = new URLSearchParams(window.location.search);
+        const queryMode = params.get("mode") as AppMode | null;
+        if (queryMode === "marketing" || queryMode === "sales") {
+          setModeState(queryMode);
+          localStorage.setItem(STORAGE_KEY, queryMode);
         } else {
-          setModeState("sales");
+          const isMarketingPath =
+            window.location.pathname.startsWith("/social-media") ||
+            window.location.pathname.startsWith("/content-calendar") ||
+            window.location.pathname.startsWith("/automation");
+
+          if (isMarketingPath) {
+            setModeState("marketing");
+          } else {
+            const saved = localStorage.getItem(STORAGE_KEY) as AppMode | null;
+            if (saved === "marketing" || saved === "sales") {
+              setModeState(saved);
+            } else {
+              setModeState("marketing");
+            }
+          }
         }
       } catch {
-        setModeState("sales");
+        setModeState("marketing");
       }
     }
 

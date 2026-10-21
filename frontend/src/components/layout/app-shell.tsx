@@ -4,6 +4,7 @@ import * as React from "react";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { cn } from "@/lib/utils";
+import { useAppMode } from "@/contexts/AppModeContext";
 
 export interface AppShellProps {
   children: React.ReactNode;
@@ -16,10 +17,17 @@ export const AppShell: React.FC<AppShellProps> = ({
 }) => {
   const [collapsed, setCollapsed] = React.useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const { mode } = useAppMode();
+  const isMarketing = mode === "marketing";
 
   return (
-    <div className="min-h-screen flex bg-mainbg text-slate-800 antialiased font-sans">
-      {/* Desktop Sidebar */}
+    <div
+      className={cn(
+        "min-h-screen flex antialiased font-sans select-none",
+        isMarketing ? "bg-[#F8FAFC] text-slate-800" : "bg-mainbg text-slate-800"
+      )}
+    >
+      {/* Desktop Fixed Left Sidebar */}
       <div className="hidden md:flex shrink-0">
         <Sidebar
           collapsed={collapsed}
@@ -32,23 +40,28 @@ export const AppShell: React.FC<AppShellProps> = ({
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden flex">
           <div
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs"
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs"
             onClick={() => setMobileMenuOpen(false)}
             aria-hidden="true"
           />
-          <div className="relative w-64 bg-white h-full z-10 shadow-xl">
-            <Sidebar />
+          <div className="relative w-64 h-full z-10 shadow-2xl">
+            <Sidebar onToggleCollapse={() => setMobileMenuOpen(false)} />
           </div>
         </div>
       )}
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Scrollable Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
         <Header
           onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
           onNewCampaignClick={onNewCampaignClick}
         />
-        <main className="flex-1 p-4 sm:p-6 md:p-8 max-w-7xl w-full mx-auto space-y-6">
+        <main
+          className={cn(
+            "flex-1 p-4 sm:p-6 md:p-8 w-full mx-auto space-y-6",
+            isMarketing ? "max-w-[1600px]" : "max-w-7xl"
+          )}
+        >
           {children}
         </main>
       </div>

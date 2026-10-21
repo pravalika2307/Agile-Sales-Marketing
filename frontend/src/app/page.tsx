@@ -37,7 +37,7 @@ import {
   PipelineItem,
 } from "@/services/pipelineService";
 import { useAppMode } from "@/contexts/AppModeContext";
-import { MarketingDashboardSkeleton } from "@/components/marketing/marketing-dashboard-skeleton";
+import { MarketingDashboard } from "@/components/marketing/marketing-dashboard";
 
 export default function DashboardPage() {
   const { mode } = useAppMode();
@@ -120,7 +120,7 @@ export default function DashboardPage() {
   return (
     <AppShell onNewCampaignClick={() => setModalOpen(true)}>
       {isMarketing ? (
-        <MarketingDashboardSkeleton />
+        <MarketingDashboard />
       ) : (
         <>
           {/* Page Title & Top Actions */}
