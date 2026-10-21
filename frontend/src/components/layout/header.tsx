@@ -313,7 +313,7 @@ export const Header: React.FC<HeaderProps> = ({
                     <span>Account Profile</span>
                   </button>
                   <Link
-                    href="/settings"
+                    href={isMarketing ? "/marketing/settings" : "/sales/settings"}
                     onClick={() => setUserMenuOpen(false)}
                     className="w-full flex items-center gap-2 px-3.5 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition-colors text-left"
                   >

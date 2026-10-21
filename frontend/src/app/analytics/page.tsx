@@ -40,7 +40,10 @@ import {
   Flame,
 } from "lucide-react";
 
-export default function AnalyticsPage() {
+import { useAppMode } from "@/contexts/AppModeContext";
+import MarketingAnalyticsPage from "@/app/marketing/analytics/page";
+
+export function SalesAnalyticsContent() {
   const [data, setData] = React.useState<AnalyticsOverviewResponse | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -613,4 +616,12 @@ export default function AnalyticsPage() {
       </Card>
     </AppShell>
   );
+}
+
+export default function AnalyticsPage() {
+  const { mode } = useAppMode();
+  if (mode === "marketing") {
+    return <MarketingAnalyticsPage />;
+  }
+  return <SalesAnalyticsContent />;
 }

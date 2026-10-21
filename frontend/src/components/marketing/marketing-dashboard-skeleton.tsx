@@ -53,7 +53,7 @@ export const MarketingDashboardSkeleton: React.FC = () => {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2.5">
-          <Link href="/social-media">
+          <Link href="/marketing/social-media">
             <Button
               variant="outline"
               size="sm"

@@ -30,27 +30,27 @@ export interface NavItem {
 }
 
 export const salesNavigationItems: NavItem[] = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
-  { name: "Find Leads", href: "/find-leads", icon: UserSearch, badge: "Active" },
-  { name: "Leads", href: "/leads", icon: Users },
-  { name: "Campaigns", href: "/campaigns", icon: Send },
-  { name: "Outreach", href: "/outreach", icon: PhoneCall },
-  { name: "Pipeline", href: "/pipeline", icon: KanbanSquare },
-  { name: "Analytics", href: "/analytics", icon: BarChart3 },
+  { name: "Dashboard", href: "/sales", icon: LayoutDashboard },
+  { name: "Find Leads", href: "/sales/find-leads", icon: UserSearch, badge: "Active" },
+  { name: "Leads", href: "/sales/leads", icon: Users },
+  { name: "Campaigns", href: "/sales/campaigns", icon: Send },
+  { name: "Outreach", href: "/sales/outreach", icon: PhoneCall },
+  { name: "Pipeline", href: "/sales/pipeline", icon: KanbanSquare },
+  { name: "Analytics", href: "/sales/analytics", icon: BarChart3 },
 ];
 
 export const marketingNavigationItems: NavItem[] = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard, badge: "Active" },
-  { name: "Campaigns", href: "/campaigns", icon: Send },
-  { name: "Content Calendar", href: "/content-calendar", icon: Calendar },
-  { name: "Social Media", href: "/social-media", icon: Share2 },
-  { name: "Analytics", href: "/analytics", icon: BarChart3 },
-  { name: "Automation", href: "/automation", icon: Zap },
+  { name: "Dashboard", href: "/marketing", icon: LayoutDashboard, badge: "Active" },
+  { name: "Campaigns", href: "/marketing/campaigns", icon: Send },
+  { name: "Content Calendar", href: "/marketing/content-calendar", icon: Calendar },
+  { name: "Social Media", href: "/marketing/social-media", icon: Share2 },
+  { name: "Analytics", href: "/marketing/analytics", icon: BarChart3 },
+  { name: "Automation", href: "/marketing/automation", icon: Zap },
 ];
 
 export const secondaryNavigationItems: NavItem[] = [
-  { name: "Integrations", href: "/integrations", icon: Layers },
-  { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Integrations", href: "/sales/integrations", icon: Layers },
+  { name: "Settings", href: "/sales/settings", icon: Settings },
 ];
 
 export interface SidebarProps {
@@ -69,6 +69,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isMarketing = mode === "marketing";
 
   const navigationItems = isMarketing ? marketingNavigationItems : salesNavigationItems;
+  const brandHref = isMarketing ? "/marketing" : "/sales";
+  const settingsHref = isMarketing ? "/marketing/settings" : "/sales/settings";
 
   return (
     <aside
@@ -88,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           isMarketing ? "border-slate-800/80 bg-[#0B132B]" : "border-slate-100"
         )}
       >
-        <Link href="/" className="flex items-center gap-2.5 overflow-hidden">
+        <Link href={brandHref} className="flex items-center gap-2.5 overflow-hidden">
           {/* Brand Mark */}
           <div
             className={cn(
@@ -154,9 +156,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <nav className="space-y-1">
           {navigationItems.map((item) => {
             const Icon = item.icon;
-            const isActive =
-              pathname === item.href ||
-              (item.href !== "/" && pathname?.startsWith(item.href));
+            const isDashboard = item.href === "/sales" || item.href === "/marketing";
+            const isActive = isDashboard
+              ? isMarketing
+                ? pathname === "/marketing" || pathname === "/"
+                : pathname === "/sales" || pathname === "/"
+              : pathname === item.href || pathname?.startsWith(`${item.href}/`);
 
             return (
               <Link
@@ -215,7 +220,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="pt-2 border-t border-slate-100">
             {!collapsed && (
               <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Settings & Integrations
+                Settings &amp; Integrations
               </p>
             )}
             <nav className="space-y-1">
@@ -254,7 +259,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {/* Settings at the bottom (Requirement 2) */}
+      {/* Settings at the bottom */}
       <div
         className={cn(
           "p-3 border-t",
@@ -262,15 +267,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       >
         <Link
-          href="/settings"
+          href={settingsHref}
           title={collapsed ? "Settings" : undefined}
           className={cn(
             "group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 mb-2",
             isMarketing
-              ? pathname === "/settings"
+              ? pathname === "/marketing/settings" || pathname === "/settings"
                 ? "bg-indigo-600/20 text-white font-semibold"
                 : "text-slate-400 hover:text-white hover:bg-slate-800/60"
-              : pathname === "/settings"
+              : pathname === "/sales/settings" || pathname === "/settings"
                 ? "bg-agile-lightorange text-agile-red font-semibold"
                 : "text-slate-600 hover:text-header hover:bg-slate-50"
           )}
