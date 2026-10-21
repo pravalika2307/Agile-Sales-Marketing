@@ -10,6 +10,11 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  fetchMarketingInsights,
+  regenerateMarketingInsights,
+  AIInsightData,
+} from "@/services/marketingService";
 
 export interface AIInsightItem {
   id: string;
@@ -25,23 +30,23 @@ export interface AIInsightItem {
 const DEFAULT_INSIGHTS: AIInsightItem[] = [
   {
     id: "insight-1",
-    type: "recommendation",
-    icon: Lightbulb,
-    iconBg: "bg-amber-50 border-amber-200/60",
-    iconColor: "text-amber-600",
-    badge: "Scheduling Recommendation",
-    text: "Optimal posting window for B2B CFOs on LinkedIn is Tuesday & Thursday at 8:30 AM EST (+34% CTR over baseline).",
-    impactScore: "+34% CTR",
-  },
-  {
-    id: "insight-2",
     type: "performance",
     icon: TrendingUp,
     iconBg: "bg-emerald-50 border-emerald-200/60",
     iconColor: "text-emerald-600",
     badge: "Creative Performance",
-    text: "Video walkthroughs showcasing Retell AI telephony generated 2.8x higher demo conversion than static graphics.",
-    impactScore: "2.8x Conv",
+    text: 'The "Product Feature" content pillar achieved exceptional performance with 38.5% engagement rate on LinkedIn, led by the "Manage Payment Disputes" post (+140% above baseline).',
+    impactScore: "+38.5% ER",
+  },
+  {
+    id: "insight-2",
+    type: "recommendation",
+    icon: Lightbulb,
+    iconBg: "bg-amber-50 border-amber-200/60",
+    iconColor: "text-amber-600",
+    badge: "Cadence Recommendation",
+    text: '"72-Hour Friendly Nudge" omnichannel cadence generated sustained multi-channel interaction across Facebook & Instagram, verifying high response to early-stage digital payment reminders.',
+    impactScore: "+34% CTR",
   },
   {
     id: "insight-3",
@@ -50,8 +55,8 @@ const DEFAULT_INSIGHTS: AIInsightItem[] = [
     iconBg: "bg-indigo-50 border-indigo-200/60",
     iconColor: "text-indigo-600",
     badge: "High-Intent Surge",
-    text: "Mid-market manufacturing accounts generated 48% of all link clicks following the 14-day DSO case study release.",
-    impactScore: "48% Clicks",
+    text: 'Healthcare RCM content ("Healthcare Revenue Cycle" & "Patient AR Strategy") drove 19 total link clicks and high-intent inbound interest from clinic billing operators.',
+    impactScore: "19 Clicks",
   },
   {
     id: "insight-4",
@@ -60,22 +65,95 @@ const DEFAULT_INSIGHTS: AIInsightItem[] = [
     iconBg: "bg-purple-50 border-purple-200/60",
     iconColor: "text-purple-600",
     badge: "Content Repurposing",
-    text: "AI recommendation: Repurpose the 'Voice Telephony Automation' playbook into a 4-slide carousel for increased saves.",
-    impactScore: "High Impact",
+    text: 'Video creative assets ("Kunal\'s Interview") unlocked 267 impressions and 29 total engagements, demonstrating 2.8x higher audience reach than static graphics.',
+    impactScore: "2.8x Reach",
   },
 ];
 
+function mapInsightItem(item: AIInsightData): AIInsightItem {
+  switch (item.type) {
+    case "recommendation":
+      return {
+        id: item.id,
+        type: "recommendation",
+        icon: Lightbulb,
+        iconBg: "bg-amber-50 border-amber-200/60",
+        iconColor: "text-amber-600",
+        badge: item.badge || "Recommendation",
+        text: item.text,
+        impactScore: item.impactScore,
+      };
+    case "performance":
+      return {
+        id: item.id,
+        type: "performance",
+        icon: TrendingUp,
+        iconBg: "bg-emerald-50 border-emerald-200/60",
+        iconColor: "text-emerald-600",
+        badge: item.badge || "Performance",
+        text: item.text,
+        impactScore: item.impactScore,
+      };
+    case "audience":
+      return {
+        id: item.id,
+        type: "audience",
+        icon: Target,
+        iconBg: "bg-indigo-50 border-indigo-200/60",
+        iconColor: "text-indigo-600",
+        badge: item.badge || "Audience Surge",
+        text: item.text,
+        impactScore: item.impactScore,
+      };
+    case "optimization":
+    default:
+      return {
+        id: item.id,
+        type: "optimization",
+        icon: Sparkles,
+        iconBg: "bg-purple-50 border-purple-200/60",
+        iconColor: "text-purple-600",
+        badge: item.badge || "Optimization",
+        text: item.text,
+        impactScore: item.impactScore,
+      };
+  }
+}
+
 export const AIInsightsWidget: React.FC = () => {
-  const [insights] = React.useState<AIInsightItem[]>(DEFAULT_INSIGHTS);
+  const [insights, setInsights] = React.useState<AIInsightItem[]>(DEFAULT_INSIGHTS);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [lastUpdated, setLastUpdated] = React.useState("Just now");
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
+  const loadInsights = React.useCallback(async () => {
+    try {
+      const res = await fetchMarketingInsights();
+      if (res.insights && res.insights.length > 0) {
+        setInsights(res.insights.map(mapInsightItem));
+        setLastUpdated("Synced with PostgreSQL");
+      }
+    } catch (err: unknown) {
+      console.warn("Could not fetch live AI insights, using fallbacks:", err);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadInsights();
+  }, [loadInsights]);
+
+  const handleRefresh = async () => {
+    try {
+      setIsRefreshing(true);
+      const res = await regenerateMarketingInsights();
+      if (res.insights && res.insights.length > 0) {
+        setInsights(res.insights.map(mapInsightItem));
+      }
       setLastUpdated("Updated seconds ago");
-    }, 700);
+    } catch (err: unknown) {
+      console.error("Failed to regenerate AI insights:", err);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   return (

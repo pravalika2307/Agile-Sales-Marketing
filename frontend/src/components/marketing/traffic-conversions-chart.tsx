@@ -4,7 +4,8 @@ import * as React from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { TrendingUp, ArrowUpRight } from "lucide-react";
+import { TrendingUp, ArrowUpRight, RefreshCw } from "lucide-react";
+import { fetchMarketingChart, ChartPointData } from "@/services/marketingService";
 
 export interface DataPoint {
   date: string;
@@ -13,17 +14,7 @@ export interface DataPoint {
   paidConversions: number;
 }
 
-const DATA_7D: DataPoint[] = [
-  { date: "2026-10-15", displayDate: "Oct 15", organicTraffic: 1420, paidConversions: 54 },
-  { date: "2026-10-16", displayDate: "Oct 16", organicTraffic: 1680, paidConversions: 62 },
-  { date: "2026-10-17", displayDate: "Oct 17", organicTraffic: 1540, paidConversions: 58 },
-  { date: "2026-10-18", displayDate: "Oct 18", organicTraffic: 1890, paidConversions: 74 },
-  { date: "2026-10-19", displayDate: "Oct 19", organicTraffic: 2150, paidConversions: 89 },
-  { date: "2026-10-20", displayDate: "Oct 20", organicTraffic: 2420, paidConversions: 98 },
-  { date: "2026-10-21", displayDate: "Oct 21", organicTraffic: 2650, paidConversions: 112 },
-];
-
-const DATA_30D: DataPoint[] = [
+const FALLBACK_30D: DataPoint[] = [
   { date: "2026-09-22", displayDate: "Sep 22", organicTraffic: 980, paidConversions: 38 },
   { date: "2026-09-26", displayDate: "Sep 26", organicTraffic: 1140, paidConversions: 44 },
   { date: "2026-09-30", displayDate: "Sep 30", organicTraffic: 1350, paidConversions: 52 },
@@ -33,16 +24,6 @@ const DATA_30D: DataPoint[] = [
   { date: "2026-10-16", displayDate: "Oct 16", organicTraffic: 2240, paidConversions: 88 },
   { date: "2026-10-20", displayDate: "Oct 20", organicTraffic: 2510, paidConversions: 104 },
   { date: "2026-10-21", displayDate: "Oct 21", organicTraffic: 2780, paidConversions: 116 },
-];
-
-const DATA_90D: DataPoint[] = [
-  { date: "2026-07-25", displayDate: "Jul 25", organicTraffic: 24000, paidConversions: 920 },
-  { date: "2026-08-10", displayDate: "Aug 10", organicTraffic: 28500, paidConversions: 1140 },
-  { date: "2026-08-25", displayDate: "Aug 25", organicTraffic: 33200, paidConversions: 1350 },
-  { date: "2026-09-10", displayDate: "Sep 10", organicTraffic: 39400, paidConversions: 1580 },
-  { date: "2026-09-25", displayDate: "Sep 25", organicTraffic: 44800, paidConversions: 1790 },
-  { date: "2026-10-10", displayDate: "Oct 10", organicTraffic: 51200, paidConversions: 2040 },
-  { date: "2026-10-21", displayDate: "Oct 21", organicTraffic: 58900, paidConversions: 2360 },
 ];
 
 function generateBezierPath(points: { x: number; y: number }[]): string {
@@ -66,23 +47,41 @@ function generateBezierPath(points: { x: number; y: number }[]): string {
 
 export const TrafficConversionsChart: React.FC = () => {
   const [timeRange, setTimeRange] = React.useState<"7d" | "30d" | "90d">("30d");
+  const [data, setData] = React.useState<DataPoint[]>(FALLBACK_30D);
+  const [loading, setLoading] = React.useState(true);
   const [hoveredIndex, setHoveredIndex] = React.useState<number | null>(null);
   const [showOrganic, setShowOrganic] = React.useState(true);
   const [showConversions, setShowConversions] = React.useState(true);
+  const [yoyGrowth, setYoyGrowth] = React.useState("+24.8% YoY");
 
-  const data = React.useMemo(() => {
-    switch (timeRange) {
-      case "7d":
-        return DATA_7D;
-      case "90d":
-        return DATA_90D;
-      case "30d":
-      default:
-        return DATA_30D;
+  React.useEffect(() => {
+    let isMounted = true;
+
+    async function loadChart() {
+      try {
+        setLoading(true);
+        const res = await fetchMarketingChart(timeRange);
+        if (isMounted && res.points && res.points.length > 0) {
+          setData(res.points);
+          if (res.summary?.yoyGrowth) {
+            setYoyGrowth(`${res.summary.yoyGrowth} YoY`);
+          }
+        }
+      } catch (err: unknown) {
+        console.warn("Could not fetch live marketing chart, using fallback points:", err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
     }
+
+    loadChart();
+
+    return () => {
+      isMounted = false;
+    };
   }, [timeRange]);
 
-  // Aggregate sums for quick KPI display
+  // Aggregate sums for KPI display
   const totalOrganic = React.useMemo(
     () => data.reduce((acc, curr) => acc + curr.organicTraffic, 0),
     [data]
@@ -96,7 +95,7 @@ export const TrafficConversionsChart: React.FC = () => {
     [totalOrganic, totalConversions]
   );
 
-  // Chart coordinates
+  // SVG Chart dimensions
   const svgWidth = 800;
   const svgHeight = 280;
   const paddingLeft = 50;
@@ -107,18 +106,16 @@ export const TrafficConversionsChart: React.FC = () => {
   const chartW = svgWidth - paddingLeft - paddingRight;
   const chartH = svgHeight - paddingTop - paddingBottom;
 
-  // Max scales
   const maxOrganic = Math.max(...data.map((d) => d.organicTraffic)) * 1.15 || 1000;
   const maxConversions = Math.max(...data.map((d) => d.paidConversions)) * 1.2 || 100;
 
-  // Compute point coordinates
   const organicPoints = data.map((d, i) => ({
-    x: paddingLeft + (i / (data.length - 1)) * chartW,
+    x: paddingLeft + (i / (Math.max(data.length - 1, 1))) * chartW,
     y: paddingTop + chartH - (d.organicTraffic / maxOrganic) * chartH,
   }));
 
   const conversionPoints = data.map((d, i) => ({
-    x: paddingLeft + (i / (data.length - 1)) * chartW,
+    x: paddingLeft + (i / (Math.max(data.length - 1, 1))) * chartW,
     y: paddingTop + chartH - (d.paidConversions / maxConversions) * chartH,
   }));
 
@@ -146,17 +143,17 @@ export const TrafficConversionsChart: React.FC = () => {
             </CardTitle>
             <span className="inline-flex items-center text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
               <TrendingUp className="w-3 h-3 mr-1" />
-              +24.8% YoY
+              {yoyGrowth}
             </span>
+            {loading && <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Multi-stream correlation between inbound organic audience and paid ad conversions.
+            PostgreSQL time-series: Multi-stream correlation between audience reach and conversion events.
           </p>
         </div>
 
-        {/* Controls: Legend Toggles + Time-range dropdown (Specification 4) */}
+        {/* Controls: Legend Toggles + Time-range dropdown */}
         <div className="flex items-center gap-3">
-          {/* Legend Toggles */}
           <div className="hidden md:flex items-center gap-3 text-xs">
             <button
               type="button"
@@ -182,7 +179,6 @@ export const TrafficConversionsChart: React.FC = () => {
             </button>
           </div>
 
-          {/* Time-Range Dropdown */}
           <div className="w-36">
             <Select
               value={timeRange}
@@ -224,7 +220,6 @@ export const TrafficConversionsChart: React.FC = () => {
 
         {/* Multi-Line / Area Chart Container with Smooth Curves */}
         <div className="relative w-full overflow-hidden select-none" style={{ height: svgHeight }}>
-          {/* Interactive Floating Tooltip */}
           {hoveredIndex !== null && data[hoveredIndex] && (
             <div
               className="absolute z-20 pointer-events-none -translate-x-1/2 rounded-xl bg-slate-900/95 text-white p-2.5 shadow-xl border border-slate-700/60 backdrop-blur-xs text-xs animate-in fade-in duration-100"
@@ -266,13 +261,11 @@ export const TrafficConversionsChart: React.FC = () => {
             preserveAspectRatio="none"
           >
             <defs>
-              {/* Organic Traffic Gradient */}
               <linearGradient id="organicGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#6366f1" stopOpacity="0.32" />
                 <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
               </linearGradient>
 
-              {/* Paid Conversions Gradient */}
               <linearGradient id="conversionGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#10b981" stopOpacity="0.28" />
                 <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
@@ -368,10 +361,10 @@ export const TrafficConversionsChart: React.FC = () => {
 
             {/* Date-based X-Axis Labels */}
             {data.map((d, i) => {
-              const x = paddingLeft + (i / (data.length - 1)) * chartW;
+              const x = paddingLeft + (i / (Math.max(data.length - 1, 1))) * chartW;
               return (
                 <text
-                  key={d.date}
+                  key={`${d.date}-${i}`}
                   x={x}
                   y={svgHeight - 12}
                   textAnchor="middle"
@@ -385,7 +378,7 @@ export const TrafficConversionsChart: React.FC = () => {
               );
             })}
 
-            {/* Invisible Hover Rectangles along X-axis for smooth mouse detection */}
+            {/* Hover Rectangles along X-axis */}
             {data.map((_, i) => {
               const prevX = i === 0 ? paddingLeft : (organicPoints[i - 1].x + organicPoints[i].x) / 2;
               const nextX =
@@ -397,7 +390,7 @@ export const TrafficConversionsChart: React.FC = () => {
                   key={`hover-${i}`}
                   x={prevX}
                   y={paddingTop}
-                  width={nextX - prevX}
+                  width={Math.max(nextX - prevX, 1)}
                   height={chartH}
                   fill="transparent"
                   className="cursor-pointer"

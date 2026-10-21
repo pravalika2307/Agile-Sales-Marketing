@@ -2,12 +2,21 @@
 
 import * as React from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { TrendingUp, Users, Percent, MousePointerClick, CalendarCheck } from "lucide-react";
+import {
+  TrendingUp,
+  TrendingDown,
+  Users,
+  Percent,
+  MousePointerClick,
+  CalendarCheck,
+  RefreshCw,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fetchMarketingKpis } from "@/services/marketingService";
 
 interface SparklineProps {
   data: number[];
-  color?: string; // hex or CSS color
+  color?: string;
   fillColor?: string;
   gradientId: string;
   width?: number;
@@ -29,14 +38,12 @@ export const Sparkline: React.FC<SparklineProps> = ({
   const paddingY = 4;
   const availableHeight = height - paddingY * 2;
 
-  // Calculate points
   const points = data.map((val, idx) => {
     const x = (idx / (data.length - 1)) * width;
     const y = height - paddingY - ((val - min) / range) * availableHeight;
     return { x, y };
   });
 
-  // Generate smooth cubic bezier SVG path
   let pathD = `M ${points[0].x} ${points[0].y}`;
   for (let i = 0; i < points.length - 1; i++) {
     const p0 = points[i === 0 ? 0 : i - 1];
@@ -76,7 +83,6 @@ export const Sparkline: React.FC<SparklineProps> = ({
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      {/* Final point indicator */}
       <circle
         cx={points[points.length - 1].x}
         cy={points[points.length - 1].y}
@@ -93,7 +99,8 @@ export interface KpiMetricItem {
   id: string;
   title: string;
   value: string;
-  change: string; // e.g. "+18.4%"
+  change: string;
+  isPositive?: boolean;
   subtext: string;
   icon: React.ComponentType<{ className?: string }>;
   sparklineData: number[];
@@ -106,23 +113,25 @@ const DEFAULT_KPIS: KpiMetricItem[] = [
   {
     id: "total-reach",
     title: "Total Reach",
-    value: "148,290",
-    change: "+18.4%",
-    subtext: "vs. 125,200 previous 30 days",
+    value: "404",
+    change: "+210.8%",
+    isPositive: true,
+    subtext: "Goal: 130 for October 2026",
     icon: Users,
-    sparklineData: [42, 55, 51, 68, 62, 79, 85, 92, 108, 124, 138, 148],
-    color: "#10b981", // Emerald green for positive indicator
+    sparklineData: [18, 56, 74, 98, 115, 130, 404],
+    color: "#10b981",
     iconBg: "bg-indigo-50",
     iconColor: "text-indigo-600",
   },
   {
     id: "engagement-rate",
     title: "Engagement Rate",
-    value: "5.82%",
-    change: "+2.6%",
-    subtext: "Industry benchmark: 4.10%",
+    value: "6.70%",
+    change: "+18.4%",
+    isPositive: true,
+    subtext: "Goal: 16.0% (Peak pillar: 38.5%)",
     icon: Percent,
-    sparklineData: [3.8, 4.1, 4.0, 4.5, 4.3, 4.9, 5.1, 5.0, 5.4, 5.6, 5.5, 5.82],
+    sparklineData: [4.5, 9.9, 11.0, 19.5, 22.5, 38.5, 6.7],
     color: "#10b981",
     iconBg: "bg-purple-50",
     iconColor: "text-purple-600",
@@ -130,11 +139,12 @@ const DEFAULT_KPIS: KpiMetricItem[] = [
   {
     id: "link-clicks",
     title: "Link Clicks",
-    value: "24,615",
-    change: "+12.1%",
-    subtext: "8.2k unique UTM sessions",
+    value: "63",
+    change: "+14.5%",
+    isPositive: true,
+    subtext: "Goal: 55 for October 2026",
     icon: MousePointerClick,
-    sparklineData: [120, 145, 138, 160, 155, 182, 195, 210, 205, 230, 240, 246],
+    sparklineData: [5, 11, 18, 26, 40, 52, 63],
     color: "#10b981",
     iconBg: "bg-blue-50",
     iconColor: "text-blue-600",
@@ -142,25 +152,81 @@ const DEFAULT_KPIS: KpiMetricItem[] = [
   {
     id: "demo-requests",
     title: "Demo Requests",
-    value: "184",
-    change: "+28.5%",
-    subtext: "High-intent inbound MQLs",
+    value: "3",
+    change: "+50.0%",
+    isPositive: true,
+    subtext: "Goal: 2 for October 2026",
     icon: CalendarCheck,
-    sparklineData: [12, 16, 14, 22, 19, 28, 31, 35, 38, 44, 49, 56],
+    sparklineData: [0, 1, 1, 2, 2, 3],
     color: "#10b981",
     iconBg: "bg-emerald-50",
     iconColor: "text-emerald-600",
   },
 ];
 
+const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  "total-reach": Users,
+  "engagement-rate": Percent,
+  "link-clicks": MousePointerClick,
+  "demo-requests": CalendarCheck,
+};
+
 export const MarketingKpiCards: React.FC<{ items?: KpiMetricItem[] }> = ({
-  items = DEFAULT_KPIS,
+  items: propItems,
 }) => {
+  const [liveCards, setLiveCards] = React.useState<KpiMetricItem[]>(() => propItems || DEFAULT_KPIS);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    async function loadKpiData() {
+      try {
+        setLoading(true);
+        const data = await fetchMarketingKpis();
+        if (isMounted && data.cards && data.cards.length > 0) {
+          const mappedCards: KpiMetricItem[] = data.cards.map((c) => ({
+            id: c.id,
+            title: c.title,
+            value: c.value,
+            change: c.change,
+            isPositive: c.isPositive !== false,
+            subtext: c.subtext,
+            icon: ICON_MAP[c.id] || Users,
+            sparklineData: c.sparklineData || [10, 20, 30],
+            color: c.color || (c.isPositive !== false ? "#10b981" : "#ef4444"),
+            iconBg: c.iconBg || "bg-indigo-50",
+            iconColor: c.iconColor || "text-indigo-600",
+          }));
+          setLiveCards(mappedCards);
+          setError(null);
+        }
+      } catch (err: unknown) {
+        console.warn("Could not fetch live marketing KPIs, falling back to local defaults:", err);
+        if (isMounted) {
+          setError("Failed to refresh live data");
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    loadKpiData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const cardsToRender = liveCards;
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      {items.map((kpi, idx) => {
+      {cardsToRender.map((kpi, idx) => {
         const Icon = kpi.icon;
         const gradientId = `sparkline-grad-${kpi.id}-${idx}`;
+        const isPositive = kpi.isPositive ?? !kpi.change.startsWith("-");
 
         return (
           <Card
@@ -191,9 +257,20 @@ export const MarketingKpiCards: React.FC<{ items?: KpiMetricItem[] }> = ({
                     {kpi.value}
                   </div>
                   <div className="mt-2 flex items-center gap-1.5">
-                    {/* Percentage Change Indicator (Green for positive as specified) */}
-                    <span className="inline-flex items-center text-xs font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200/60">
-                      <TrendingUp className="w-3 h-3 mr-0.5" />
+                    {/* Percentage Change Indicator (Green for positive, red for negative) */}
+                    <span
+                      className={cn(
+                        "inline-flex items-center text-xs font-bold px-1.5 py-0.5 rounded-md border",
+                        isPositive
+                          ? "text-emerald-700 bg-emerald-50 border-emerald-200/70"
+                          : "text-rose-700 bg-rose-50 border-rose-200/70"
+                      )}
+                    >
+                      {isPositive ? (
+                        <TrendingUp className="w-3 h-3 mr-0.5" />
+                      ) : (
+                        <TrendingDown className="w-3 h-3 mr-0.5" />
+                      )}
                       {kpi.change}
                     </span>
                   </div>
@@ -212,9 +289,14 @@ export const MarketingKpiCards: React.FC<{ items?: KpiMetricItem[] }> = ({
               </div>
 
               {/* Subtitle / Contextual Note */}
-              <p className="text-[11px] text-slate-400 mt-2 font-medium">
-                {kpi.subtext}
-              </p>
+              <div className="flex items-center justify-between mt-2">
+                <p className="text-[11px] text-slate-400 font-medium">
+                  {kpi.subtext}
+                </p>
+                {loading && (
+                  <RefreshCw className="w-2.5 h-2.5 animate-spin text-slate-300 shrink-0" />
+                )}
+              </div>
             </CardContent>
           </Card>
         );

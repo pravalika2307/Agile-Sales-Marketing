@@ -10,6 +10,8 @@ import {
   GripVertical,
   Clock,
   CheckCircle2,
+  RefreshCw,
+  ExternalLink,
 } from "lucide-react";
 import {
   LinkedInIcon,
@@ -18,8 +20,13 @@ import {
   XIcon,
 } from "@/components/social/social-icons";
 import { cn } from "@/lib/utils";
+import {
+  fetchMarketingKanban,
+  updateKanbanPostStatus,
+  KanbanCardData,
+} from "@/services/marketingService";
 
-export type ColumnId = "backlog" | "in_progress" | "awaiting_approval" | "scheduled";
+export type ColumnId = "backlog" | "in_progress" | "awaiting_approval" | "scheduled" | "posted";
 
 export type SocialPlatform = "linkedin" | "instagram" | "x" | "facebook";
 
@@ -37,104 +44,125 @@ export interface KanbanCardItem {
   scheduledDate?: string;
   authorName: string;
   authorInitials: string;
+  contentPillar?: string;
+  permalink?: string | null;
+  aiCost?: number | null;
+  analytics?: {
+    impressions: number;
+    reach: number;
+    likes: number;
+    comments: number;
+    shares: number;
+    totalEngagement: number;
+    engagementRate: number;
+    linkClicks: number;
+  } | null;
 }
 
-const INITIAL_CARDS: KanbanCardItem[] = [
+const FALLBACK_CARDS: KanbanCardItem[] = [
   {
     id: "kb-1",
-    title: "Q4 CFO Working Capital & DSO Benchmark Report",
-    summary: "Exclusive survey data from 140+ CFOs revealing strategies to shave 14 days off DSO.",
-    platforms: ["linkedin", "x", "facebook"],
-    statusBadge: { label: "New", variant: "new" },
-    thumbnailUrl: "https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=160&auto=format&fit=crop&q=80",
+    title: "Patient AR Isn't Just a Follow-Up Problem. It's a Workflow Problem.",
+    summary: "Early-stage delinquency cadences replacing cold calls with automated omnichannel nudges.",
+    platforms: ["linkedin"],
+    statusBadge: { label: "Backlog", variant: "new" },
+    thumbnailUrl: "https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=160&auto=format&fit=crop&q=80",
     columnId: "backlog",
-    scheduledDate: "TBD",
+    scheduledDate: "Oct 2026",
     authorName: "Pravalika Palle",
     authorInitials: "PP",
+    contentPillar: "Product Feature",
   },
   {
     id: "kb-2",
-    title: "Behind the Scenes: Voice Telephony Follow-Up Workflows",
-    summary: "Video tour showcasing Retell AI telephone dispatch syncing directly with CRM pipelines.",
-    platforms: ["linkedin", "instagram"],
-    statusBadge: { label: "Video Asset", variant: "priority" },
-    thumbnailUrl: "https://images.unsplash.com/photo-1557804506-669a67965ba0?w=160&auto=format&fit=crop&q=80",
+    title: "Facing the 2025 Healthcare Financial Crisis? Agile Has Solutions",
+    summary: "Healthcare RCM insights examining operating margin pressures and digital payment acceleration.",
+    platforms: ["facebook", "instagram"],
+    statusBadge: { label: "Backlog", variant: "new" },
+    thumbnailUrl: "https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=160&auto=format&fit=crop&q=80",
     columnId: "backlog",
-    scheduledDate: "TBD",
-    authorName: "Lakshay Narula",
-    authorInitials: "LN",
+    scheduledDate: "Drafting",
+    authorName: "Marcus Chen",
+    authorInitials: "MC",
+    contentPillar: "Healthcare RCM",
   },
   {
     id: "kb-3",
-    title: "Healthcare Receivables Automation: Zero Manual Calling",
-    summary: "How mid-market clinics replaced cold follow-up lists with automated voice cadences.",
-    platforms: ["linkedin", "facebook"],
+    title: "72-Hour Friendly Nudge: Omnichannel AR Follow-Up Cadence",
+    summary: "Cadence that actually works: 72-hour friendly nudge; day 7 confirm payment date; day 14 escalate.",
+    platforms: ["facebook", "instagram"],
     statusBadge: { label: "In Progress", variant: "default" },
-    thumbnailUrl: "https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=160&auto=format&fit=crop&q=80",
+    thumbnailUrl: "https://images.unsplash.com/photo-1557804506-669a67965ba0?w=160&auto=format&fit=crop&q=80",
     columnId: "in_progress",
-    scheduledDate: "Drafting copy",
-    authorName: "Elena Rostova",
-    authorInitials: "ER",
+    scheduledDate: "Drafting Copy",
+    authorName: "Lakshay Narula",
+    authorInitials: "LN",
+    contentPillar: "Social Media",
   },
   {
     id: "kb-4",
-    title: "Infographic: 5 Inefficiency Leaks in B2B Credit Teams",
-    summary: "Carousels visualizing reconciliation delays, outdated contact lists, and manual dialers.",
-    platforms: ["linkedin", "x", "instagram"],
-    statusBadge: { label: "Design Ready", variant: "priority" },
-    thumbnailUrl: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=160&auto=format&fit=crop&q=80",
+    title: "Kunal's Interview: Behind the Scenes of Retell AI Telephony",
+    summary: "Video asset interview exploring conversational voice bots for inbound patient inquiries.",
+    platforms: ["linkedin"],
+    statusBadge: { label: "Video Asset", variant: "priority" },
+    thumbnailUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&auto=format&fit=crop&q=80",
     columnId: "in_progress",
     scheduledDate: "In Creative Review",
     authorName: "Pravalika Palle",
     authorInitials: "PP",
+    contentPillar: "Product Feature",
   },
   {
     id: "kb-5",
-    title: "Client Case Study: Enterprise Cash Flow Turnaround",
-    summary: "Awaiting client legal and marketing sign-off before dispatching to social networks.",
-    platforms: ["linkedin", "facebook"],
-    statusBadge: { label: "Review Ready", variant: "review" },
-    thumbnailUrl: "https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=160&auto=format&fit=crop&q=80",
+    title: "Why Faster Payments Matter More Than Ever in Healthcare Revenue Cycle",
+    summary: "Healthcare RCM leadership post awaiting client review and CMO sign-off before social scheduling.",
+    platforms: ["linkedin"],
+    statusBadge: { label: "Awaiting Sign-off", variant: "review" },
+    thumbnailUrl: "https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=160&auto=format&fit=crop&q=80",
     columnId: "awaiting_approval",
-    scheduledDate: "Client Sign-Off Pending",
-    authorName: "Marcus Chen",
-    authorInitials: "MC",
+    scheduledDate: "Review Pending",
+    authorName: "Lakshay Narula",
+    authorInitials: "LN",
+    contentPillar: "Healthcare RCM",
   },
   {
     id: "kb-6",
-    title: "SaaS Billing Automation & Churn Prevention Playbook",
-    summary: "Pre-approved thought leadership article ready to trigger via n8n publishing pipeline.",
-    platforms: ["linkedin", "x"],
-    statusBadge: { label: "Approved", variant: "review" },
-    thumbnailUrl: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=160&auto=format&fit=crop&q=80",
+    title: "Manage Payment Disputes From One Centralized Platform",
+    summary: "Product Feature post showcasing dispute management dashboard (Achieved peak 38.5% ER).",
+    platforms: ["linkedin"],
+    statusBadge: { label: "Review Ready", variant: "review" },
+    thumbnailUrl: "https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=160&auto=format&fit=crop&q=80",
     columnId: "awaiting_approval",
-    scheduledDate: "Awaiting Client Sign-off",
-    authorName: "Lakshay Narula",
-    authorInitials: "LN",
+    scheduledDate: "Sign-off Pending",
+    authorName: "Pravalika Palle",
+    authorInitials: "PP",
+    contentPillar: "Product Feature",
   },
   {
     id: "kb-7",
-    title: "Masterclass: Omnichannel Marketing for Commercial Credit",
-    summary: "Live interactive webinar promotion scheduled across all enterprise accounts.",
-    platforms: ["linkedin", "x", "facebook", "instagram"],
+    title: "Patient AR Is Becoming a Revenue Strategy — Not a Back-Office Task",
+    summary: "Thought leadership release on transforming AR teams into strategic value centers.",
+    platforms: ["linkedin"],
     statusBadge: { label: "Scheduled", variant: "scheduled" },
-    thumbnailUrl: "https://images.unsplash.com/photo-1515187029135-18ee286d815b?w=160&auto=format&fit=crop&q=80",
+    thumbnailUrl: "https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=160&auto=format&fit=crop&q=80",
     columnId: "scheduled",
-    scheduledDate: "Oct 24, 2026 (09:00 AM EST)",
-    authorName: "Pravalika Palle",
-    authorInitials: "PP",
+    scheduledDate: "Oct 24, 2026",
+    authorName: "Marcus Chen",
+    authorInitials: "MC",
+    contentPillar: "Product Feature",
   },
   {
     id: "kb-8",
-    title: "Product Feature Drop: Automated WhatsApp & SMS Cadences",
-    summary: "Multi-channel announcement highlighting the newest communication layer for AR teams.",
-    platforms: ["linkedin", "x", "instagram"],
+    title: "What If You Could Add Patient AR + Call Center Capacity Without Adding Another Team?",
+    summary: "Omnichannel scaling playbook highlighting AI phone agents and automated WhatsApp dispatch.",
+    platforms: ["linkedin"],
     statusBadge: { label: "Scheduled", variant: "scheduled" },
     thumbnailUrl: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=160&auto=format&fit=crop&q=80",
     columnId: "scheduled",
-    scheduledDate: "Oct 26, 2026 (02:30 PM EST)",
+    scheduledDate: "Oct 28, 2026",
     authorName: "Lakshay Narula",
     authorInitials: "LN",
+    contentPillar: "Product Feature",
   },
 ];
 
@@ -143,15 +171,37 @@ const COLUMNS: { id: ColumnId; title: string; countColor: string; accentColor: s
   { id: "in_progress", title: "In Progress", countColor: "bg-blue-100 text-blue-700", accentColor: "border-t-blue-500" },
   { id: "awaiting_approval", title: "Awaiting Approval", countColor: "bg-amber-100 text-amber-800", accentColor: "border-t-amber-500" },
   { id: "scheduled", title: "Scheduled", countColor: "bg-emerald-100 text-emerald-800", accentColor: "border-t-emerald-500" },
+  { id: "posted", title: "Published / Posted", countColor: "bg-indigo-100 text-indigo-800", accentColor: "border-t-indigo-500" },
 ];
 
 export const ContentCalendarKanban: React.FC = () => {
-  const [cards, setCards] = React.useState<KanbanCardItem[]>(INITIAL_CARDS);
+  const [cards, setCards] = React.useState<KanbanCardItem[]>(FALLBACK_CARDS);
+  const [loading, setLoading] = React.useState(true);
   const [draggingCardId, setDraggingCardId] = React.useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = React.useState<ColumnId | null>(null);
   const [selectedCard, setSelectedCard] = React.useState<KanbanCardItem | null>(null);
   const [createModalOpen, setCreateModalOpen] = React.useState(false);
   const [newTitle, setNewTitle] = React.useState("");
+  const [showAllColumns, setShowAllColumns] = React.useState(false);
+
+  // Load real seeded posts from /api/marketing/kanban
+  const loadKanbanData = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await fetchMarketingKanban();
+      if (data.cards && data.cards.length > 0) {
+        setCards(data.cards);
+      }
+    } catch (err: unknown) {
+      console.warn("Could not fetch live marketing Kanban posts, using fallbacks:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadKanbanData();
+  }, [loadKanbanData]);
 
   // Drag and drop handlers
   const handleDragStart = (e: React.DragEvent, cardId: string) => {
@@ -180,11 +230,12 @@ export const ContentCalendarKanban: React.FC = () => {
     }
   };
 
-  const handleDrop = (e: React.DragEvent, targetColId: ColumnId) => {
+  const handleDrop = async (e: React.DragEvent, targetColId: ColumnId) => {
     e.preventDefault();
     const cardId = e.dataTransfer.getData("text/plain") || draggingCardId;
     if (!cardId) return;
 
+    // Optimistic UI update
     setCards((prev) =>
       prev.map((card) => {
         if (card.id === cardId) {
@@ -195,8 +246,10 @@ export const ContentCalendarKanban: React.FC = () => {
             updatedBadge = { label: "Awaiting Review", variant: "review" };
           } else if (targetColId === "in_progress") {
             updatedBadge = { label: "In Progress", variant: "default" };
+          } else if (targetColId === "posted") {
+            updatedBadge = { label: "Published", variant: "priority" };
           } else {
-            updatedBadge = { label: "Backlog", variant: "default" };
+            updatedBadge = { label: "Backlog", variant: "new" };
           }
           return {
             ...card,
@@ -210,6 +263,13 @@ export const ContentCalendarKanban: React.FC = () => {
 
     setDraggingCardId(null);
     setDragOverColumn(null);
+
+    // Persist to PostgreSQL database via API
+    try {
+      await updateKanbanPostStatus(cardId, targetColId);
+    } catch (err: unknown) {
+      console.error("Failed to persist card status move to database:", err);
+    }
   };
 
   const handleCreatePost = (e: React.FormEvent) => {
@@ -220,7 +280,7 @@ export const ContentCalendarKanban: React.FC = () => {
       id: `kb-${Date.now()}`,
       title: newTitle.trim(),
       summary: "Newly planned social campaign asset ready for content drafting.",
-      platforms: ["linkedin", "x"],
+      platforms: ["linkedin", "facebook"],
       statusBadge: { label: "New", variant: "new" },
       thumbnailUrl: "https://images.unsplash.com/photo-1551836022-d5d88e9218df?w=160&auto=format&fit=crop&q=80",
       columnId: "backlog",
@@ -282,6 +342,9 @@ export const ContentCalendarKanban: React.FC = () => {
     }
   };
 
+  // Determine active columns to display (either the 4 planning columns or all 5 including Posted)
+  const columnsToRender = showAllColumns ? COLUMNS : COLUMNS.slice(0, 4);
+
   return (
     <Card className="rounded-xl border border-slate-200/80 bg-white shadow-xs hover:shadow-sm transition-all duration-200">
       <CardHeader className="p-4 sm:p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -290,31 +353,52 @@ export const ContentCalendarKanban: React.FC = () => {
             <Calendar className="w-4 h-4" />
           </div>
           <div>
-            <CardTitle className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-              Content Calendar (Kanban)
-            </CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                Content Calendar (Kanban)
+              </CardTitle>
+              {loading && <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+            </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Drag-and-drop posts between planning phases, client sign-offs, and scheduled publishing.
+              Live PostgreSQL workflow: Drag-and-drop posts between planning phases, client sign-offs, and scheduled publishing.
             </p>
           </div>
         </div>
 
-        {/* Action Button: Quick Add Post */}
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => setCreateModalOpen(true)}
-          className="text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs inline-flex items-center gap-1.5 self-start sm:self-auto"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>New Post Card</span>
-        </Button>
+        {/* Action Controls */}
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {/* Toggle View for Published Posts */}
+          <button
+            type="button"
+            onClick={() => setShowAllColumns(!showAllColumns)}
+            className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
+          >
+            {showAllColumns ? "Show Planning Queue (4 Cols)" : "Show All Stages + Published (5 Cols)"}
+          </button>
+
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setCreateModalOpen(true)}
+            className="text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs inline-flex items-center gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>New Post Card</span>
+          </Button>
+        </div>
       </CardHeader>
 
       <CardContent className="p-4 sm:p-5">
-        {/* Kanban 4-Column Board */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          {COLUMNS.map((col) => {
+        {/* Kanban Board Grid */}
+        <div
+          className={cn(
+            "grid gap-4",
+            showAllColumns
+              ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+              : "grid-cols-1 md:grid-cols-2 xl:grid-cols-4"
+          )}
+        >
+          {columnsToRender.map((col) => {
             const columnCards = cards.filter((c) => c.columnId === col.id);
             const isOver = dragOverColumn === col.id;
 
@@ -347,8 +431,8 @@ export const ContentCalendarKanban: React.FC = () => {
                   </span>
                 </div>
 
-                {/* Cards List with HTML5 Drag-and-Drop */}
-                <div className="space-y-2.5 flex-1 overflow-y-auto pr-0.5">
+                {/* Cards List */}
+                <div className="space-y-2.5 flex-1 overflow-y-auto max-h-[580px] pr-0.5">
                   {columnCards.length === 0 ? (
                     <div className="h-32 flex flex-col items-center justify-center border border-dashed border-slate-200 rounded-lg text-slate-400 text-xs text-center p-3">
                       <span>No posts in {col.title.toLowerCase()}</span>
@@ -370,9 +454,8 @@ export const ContentCalendarKanban: React.FC = () => {
                             isDragging ? "opacity-40 scale-98 border-dashed border-indigo-400" : ""
                           )}
                         >
-                          {/* Card Header: Platform Icons & Status Badge */}
+                          {/* Card Header */}
                           <div className="flex items-center justify-between gap-2 mb-2">
-                            {/* Platform Icons (LinkedIn, Instagram, X, Facebook) as specified */}
                             <div className="flex items-center gap-1.5 p-1 rounded-md bg-slate-50 border border-slate-100">
                               {card.platforms.map((p) => (
                                 <span key={p} title={p} className="shrink-0">
@@ -381,13 +464,11 @@ export const ContentCalendarKanban: React.FC = () => {
                               ))}
                             </div>
 
-                            {/* Status Badge */}
                             {renderBadge(card.statusBadge)}
                           </div>
 
-                          {/* Post Creative Asset Thumbnail + Bold Title (Specification 5) */}
+                          {/* Post Creative Asset Thumbnail + Bold Title */}
                           <div className="flex items-start gap-2.5">
-                            {/* Square Image Thumbnail representing creative asset */}
                             <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0 bg-slate-100 border border-slate-200/80 relative">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
@@ -397,7 +478,6 @@ export const ContentCalendarKanban: React.FC = () => {
                               />
                             </div>
 
-                            {/* Bold Title */}
                             <div className="flex-1 min-w-0">
                               <h4 className="text-xs font-bold text-slate-900 line-clamp-2 leading-snug group-hover:text-indigo-600 transition-colors">
                                 {card.title}
@@ -408,7 +488,15 @@ export const ContentCalendarKanban: React.FC = () => {
                             </div>
                           </div>
 
-                          {/* Card Footer: Scheduled Date & Assignee Avatar */}
+                          {/* Performance badge if analytics present */}
+                          {card.analytics && card.analytics.engagementRate > 0 && (
+                            <div className="mt-2 flex items-center justify-between text-[10px] bg-slate-50 px-2 py-0.5 rounded border border-slate-100 text-slate-600 font-medium">
+                              <span>ER: {card.analytics.engagementRate}%</span>
+                              <span>Likes: {card.analytics.likes}</span>
+                            </div>
+                          )}
+
+                          {/* Card Footer */}
                           <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
                             <span className="flex items-center gap-1 font-medium text-slate-500">
                               <Clock className="w-3 h-3 text-slate-400" />
@@ -461,7 +549,7 @@ export const ContentCalendarKanban: React.FC = () => {
 
           <div className="p-3 rounded-lg bg-indigo-50 border border-indigo-100 text-xs text-indigo-900">
             <span className="font-semibold block mb-0.5">Kanban Multi-Platform Placement</span>
-            This card will be added to the <strong>Backlog</strong> column with LinkedIn &amp; X pre-selected. You can drag and drop it across In Progress, Awaiting Approval, and Scheduled stages.
+            This card will be added to the <strong>Backlog</strong> column with LinkedIn &amp; Facebook pre-selected. You can drag and drop it across In Progress, Awaiting Approval, Scheduled, and Published stages.
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -516,6 +604,18 @@ export const ContentCalendarKanban: React.FC = () => {
               </div>
             </div>
 
+            {selectedCard.permalink && (
+              <a
+                href={selectedCard.permalink}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium hover:underline"
+              >
+                <span>View Live Social Post</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+
             <div className="space-y-1">
               <span className="text-xs font-bold text-slate-700">Target Social Platforms</span>
               <div className="flex items-center gap-2 pt-1">
@@ -538,13 +638,19 @@ export const ContentCalendarKanban: React.FC = () => {
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
+                      const targetId = c.id;
                       setCards((prev) =>
                         prev.map((item) =>
-                          item.id === selectedCard.id ? { ...item, columnId: c.id } : item
+                          item.id === selectedCard.id ? { ...item, columnId: targetId } : item
                         )
                       );
-                      setSelectedCard((prev) => (prev ? { ...prev, columnId: c.id } : null));
+                      setSelectedCard((prev) => (prev ? { ...prev, columnId: targetId } : null));
+                      try {
+                        await updateKanbanPostStatus(selectedCard.id, targetId);
+                      } catch (err: unknown) {
+                        console.error("Failed to move card via button:", err);
+                      }
                     }}
                     className={cn(
                       "p-2 text-xs rounded-lg border font-semibold text-left transition-colors flex items-center justify-between",
