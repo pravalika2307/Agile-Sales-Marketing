@@ -483,6 +483,10 @@ model organizations {
   monthly_targets         MonthlyTarget[]
   posts                   Post[]
   ai_insights             AiInsight[]
+  marketing_campaigns     MarketingCampaign[]
+  client_knowledge        ClientKnowledge[]
+  ai_training_configs     AiTrainingConfig[]
+  client_feedback_rules   ClientFeedbackRules[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -701,4 +705,105 @@ model AiInsight {
   @@index([clientId])
   @@index([dateGenerated])
   @@map("ai_insights")
+}
+
+// ---------------------------------------------------------------------------
+// Marketing Campaign & Training Enums
+// ---------------------------------------------------------------------------
+
+enum MarketingPlatform {
+  LINKEDIN
+  X
+  META
+}
+
+enum SchedulingMode {
+  MANUAL
+  AI_AUTO
+}
+
+enum MarketingCampaignStatus {
+  DRAFT
+  TRAINING
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+// ---------------------------------------------------------------------------
+// Marketing Campaign & Training Models
+// ---------------------------------------------------------------------------
+
+/// Core marketing campaign entity
+model MarketingCampaign {
+  id             String                  @id @default(uuid()) @db.Uuid
+  clientId       String                  @map("client_id") @db.Uuid
+  name           String                  @db.VarChar(255)
+  platform       MarketingPlatform[]
+  status         MarketingCampaignStatus @default(TRAINING)
+  createdAt      DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client         organizations           @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  knowledgeBase  ClientKnowledge[]
+  trainingConfig AiTrainingConfig?
+
+  @@index([clientId])
+  @@index([status])
+  @@map("marketing_campaigns")
+}
+
+/// Stores uploaded brand context, past top posts, or scraped URLs
+model ClientKnowledge {
+  id            String             @id @default(uuid()) @db.Uuid
+  clientId      String             @map("client_id") @db.Uuid
+  campaignId    String?            @map("campaign_id") @db.Uuid
+  fileName      String             @map("file_name") @db.VarChar(255)
+  fileType      String             @map("file_type") @db.VarChar(50)
+  extractedText String             @map("extracted_text") @db.Text
+  websiteUrl    String?            @map("website_url") @db.VarChar(500)
+  uploadDate    DateTime           @default(now()) @map("upload_date") @db.Timestamptz(6)
+
+  client        organizations      @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  campaign      MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([clientId])
+  @@index([campaignId])
+  @@map("client_knowledge")
+}
+
+/// Controls the autonomous AI training period, schedule, and approval mode
+model AiTrainingConfig {
+  id                            String            @id @default(uuid()) @db.Uuid
+  clientId                      String            @map("client_id") @db.Uuid
+  campaignId                    String            @unique @map("campaign_id") @db.Uuid
+  schedulingMode                SchedulingMode    @map("scheduling_mode")
+  postsPerWeek                  Int?              @default(3) @map("posts_per_week")
+  manualSchedulePath            String?           @map("manual_schedule_path") @db.VarChar(500)
+  trainingPeriodDays            Int               @map("training_period_days")
+  trainingModeUntil             DateTime          @map("training_mode_until") @db.Timestamptz(6)
+  requireApprovalDuringTraining Boolean           @default(true) @map("require_approval_during_training")
+  autoPublishAfterTraining      Boolean           @default(false) @map("auto_publish_after_training")
+  createdAt                     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client                        organizations     @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  campaign                      MarketingCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([clientId])
+  @@map("ai_training_configs")
+}
+
+/// Stores negative constraints and creative feedback rules learned from marketer edits
+model ClientFeedbackRules {
+  id           String        @id @default(uuid()) @db.Uuid
+  clientId     String        @map("client_id") @db.Uuid
+  ruleText     String        @map("rule_text") @db.Text
+  sourcePostId String?       @map("source_post_id") @db.Uuid
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  client       organizations @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([clientId])
+  @@map("client_feedback_rules")
 }

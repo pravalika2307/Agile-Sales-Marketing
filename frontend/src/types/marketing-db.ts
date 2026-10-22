@@ -8,10 +8,21 @@ import type {
   Post,
   PostAnalytics,
   AiInsight,
+  MarketingCampaign,
+  ClientKnowledge,
+  AiTrainingConfig,
+  ClientFeedbackRules,
   organizations,
 } from "@prisma/client";
 
-export { Platform, PostStatus, PostFormat } from "@prisma/client";
+export {
+  Platform,
+  PostStatus,
+  PostFormat,
+  MarketingPlatform,
+  SchedulingMode,
+  MarketingCampaignStatus,
+} from "@prisma/client";
 
 // Re-export primary entities
 export type {
@@ -19,6 +30,10 @@ export type {
   Post,
   PostAnalytics,
   AiInsight,
+  MarketingCampaign,
+  ClientKnowledge,
+  AiTrainingConfig,
+  ClientFeedbackRules,
   organizations as Organization,
 };
 
@@ -30,6 +45,12 @@ export type PostWithAnalytics = Post & {
 export type PostWithRelations = Post & {
   analytics: PostAnalytics | null;
   organization: organizations;
+};
+
+export type MarketingCampaignWithRelations = MarketingCampaign & {
+  knowledgeBase: ClientKnowledge[];
+  trainingConfig: AiTrainingConfig | null;
+  client?: organizations;
 };
 
 export type MonthlyTargetWithClient = MonthlyTarget & {

@@ -25,6 +25,7 @@ import {
   updateKanbanPostStatus,
   KanbanCardData,
 } from "@/services/marketingService";
+import { ReviewModal } from "./modals/review-modal";
 
 export type ColumnId = "backlog" | "in_progress" | "awaiting_approval" | "scheduled" | "posted";
 
@@ -180,6 +181,7 @@ export const ContentCalendarKanban: React.FC = () => {
   const [draggingCardId, setDraggingCardId] = React.useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = React.useState<ColumnId | null>(null);
   const [selectedCard, setSelectedCard] = React.useState<KanbanCardItem | null>(null);
+  const [reviewCard, setReviewCard] = React.useState<KanbanCardItem | null>(null);
   const [createModalOpen, setCreateModalOpen] = React.useState(false);
   const [newTitle, setNewTitle] = React.useState("");
   const [showAllColumns, setShowAllColumns] = React.useState(false);
@@ -270,6 +272,33 @@ export const ContentCalendarKanban: React.FC = () => {
     } catch (err: unknown) {
       console.error("Failed to persist card status move to database:", err);
     }
+  };
+
+  // Dedicated handlers for Approval & Feedback Review Modal
+  const handleApproveReviewCard = async (postId: string) => {
+    setCards((prev) =>
+      prev.map((item) =>
+        item.id === postId
+          ? {
+              ...item,
+              columnId: "scheduled",
+              statusBadge: { label: "Scheduled", variant: "scheduled" },
+            }
+          : item
+      )
+    );
+    try {
+      await updateKanbanPostStatus(postId, "scheduled");
+    } catch (err: unknown) {
+      console.error("Failed to approve and schedule post:", err);
+    }
+  };
+
+  const handleReviewPostUpdated = (updatedPost: KanbanCardItem) => {
+    setCards((prev) =>
+      prev.map((item) => (item.id === updatedPost.id ? updatedPost : item))
+    );
+    setReviewCard(updatedPost);
   };
 
   const handleCreatePost = (e: React.FormEvent) => {
@@ -448,7 +477,13 @@ export const ContentCalendarKanban: React.FC = () => {
                           draggable
                           onDragStart={(e) => handleDragStart(e, card.id)}
                           onDragEnd={handleDragEnd}
-                          onClick={() => setSelectedCard(card)}
+                          onClick={() => {
+                            if (card.columnId === "awaiting_approval") {
+                              setReviewCard(card);
+                            } else {
+                              setSelectedCard(card);
+                            }
+                          }}
                           className={cn(
                             "group rounded-xl border border-slate-200/90 bg-white p-3 shadow-2xs hover:shadow-sm transition-all duration-150 cursor-grab active:cursor-grabbing hover:border-indigo-300 relative select-none",
                             isDragging ? "opacity-40 scale-98 border-dashed border-indigo-400" : ""
@@ -676,6 +711,15 @@ export const ContentCalendarKanban: React.FC = () => {
           </div>
         )}
       </Modal>
+
+      {/* Dedicated Approval & AI Training Feedback Modal */}
+      <ReviewModal
+        isOpen={!!reviewCard}
+        onClose={() => setReviewCard(null)}
+        post={reviewCard}
+        onApprove={handleApproveReviewCard}
+        onPostUpdated={handleReviewPostUpdated}
+      />
     </Card>
   );
 };

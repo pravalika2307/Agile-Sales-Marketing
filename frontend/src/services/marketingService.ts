@@ -181,3 +181,40 @@ export async function regenerateMarketingInsights(): Promise<AIInsightsResponse>
   }
   return res.json();
 }
+
+export async function createMarketingCampaign(
+  formData: FormData
+): Promise<{ success: boolean; campaign: any; message?: string }> {
+  const res = await fetch("/api/marketing/campaigns/create", {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || `Failed to create marketing campaign: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function regeneratePostWithFeedback(
+  postId: string,
+  feedbackText: string,
+  clientId?: string
+): Promise<{ success: boolean; post: any; rule?: any; message?: string }> {
+  const res = await fetch("/api/marketing/posts/regenerate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ postId, feedbackText, clientId }),
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || `Failed to regenerate post with feedback: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function approveAndSchedulePost(
+  postId: string
+): Promise<{ success: boolean; post: any }> {
+  return updateKanbanPostStatus(postId, "scheduled");
+}

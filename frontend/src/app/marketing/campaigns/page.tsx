@@ -116,15 +116,16 @@ export default function MarketingCampaignsPage() {
               </Button>
             </Link>
 
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => setNewCampaignModal(true)}
-              className="text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5 mr-1" />
-              <span>New Marketing Campaign</span>
-            </Button>
+            <Link href="/marketing/campaigns/new">
+              <Button
+                variant="primary"
+                size="sm"
+                className="text-xs font-semibold bg-[#D7525A] hover:bg-[#c2434b] text-white shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                <span>New Marketing Campaign</span>
+              </Button>
+            </Link>
           </div>
         </div>
 
