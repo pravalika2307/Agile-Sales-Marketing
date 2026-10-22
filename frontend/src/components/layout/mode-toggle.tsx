@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { useAppMode } from "@/contexts/AppModeContext";
 import { cn } from "@/lib/utils";
 import { TrendingUp, Megaphone } from "lucide-react";
@@ -14,6 +15,8 @@ export const ModeToggle: React.FC<ModeToggleProps> = ({
   className,
   size = "md",
 }) => {
+  const router = useRouter();
+  const pathname = usePathname();
   const { mode, setMode, canToggle, isLoading } = useAppMode();
 
   // If user does not have "both" access, hide the toggle completely
@@ -23,6 +26,32 @@ export const ModeToggle: React.FC<ModeToggleProps> = ({
 
   const isSales = mode === "sales";
   const isMarketing = mode === "marketing";
+
+  const handleSwitchToSales = () => {
+    setMode("sales");
+    if (pathname?.startsWith("/marketing/campaigns")) {
+      router.push("/sales/campaigns");
+    } else if (pathname?.startsWith("/marketing/analytics")) {
+      router.push("/sales/analytics");
+    } else if (pathname?.startsWith("/marketing/settings")) {
+      router.push("/sales/settings");
+    } else if (pathname?.startsWith("/marketing")) {
+      router.push("/sales");
+    }
+  };
+
+  const handleSwitchToMarketing = () => {
+    setMode("marketing");
+    if (pathname?.startsWith("/sales/campaigns")) {
+      router.push("/marketing/campaigns");
+    } else if (pathname?.startsWith("/sales/analytics")) {
+      router.push("/marketing/analytics");
+    } else if (pathname?.startsWith("/sales/settings")) {
+      router.push("/marketing/settings");
+    } else if (pathname?.startsWith("/sales")) {
+      router.push("/marketing");
+    }
+  };
 
   return (
     <div
@@ -37,7 +66,7 @@ export const ModeToggle: React.FC<ModeToggleProps> = ({
       {/* Sales Button */}
       <button
         type="button"
-        onClick={() => setMode("sales")}
+        onClick={handleSwitchToSales}
         aria-pressed={isSales}
         className={cn(
           "flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all duration-200 font-medium text-xs tracking-tight",
@@ -61,7 +90,7 @@ export const ModeToggle: React.FC<ModeToggleProps> = ({
       {/* Marketing Button */}
       <button
         type="button"
-        onClick={() => setMode("marketing")}
+        onClick={handleSwitchToMarketing}
         aria-pressed={isMarketing}
         className={cn(
           "flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all duration-200 font-medium text-xs tracking-tight",

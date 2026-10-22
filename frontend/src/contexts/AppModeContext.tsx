@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { usePathname } from "next/navigation";
 
 export type AccessLevel = "sales" | "marketing" | "both";
 export type AppMode = "sales" | "marketing";
@@ -27,51 +28,54 @@ function parseAccessLevel(val?: string | null): AccessLevel {
 }
 
 export const AppModeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [accessLevel, setAccessLevel] = React.useState<AccessLevel>("both");
-  const [mode, setModeState] = React.useState<AppMode>("sales");
-  const [isLoading, setIsLoading] = React.useState(true);
+  const pathname = usePathname();
 
-  // Load access level from session and reconcile active mode
-  React.useEffect(() => {
-    let resolvedAccess: AccessLevel = "both";
-
-    // 1. Try reading agile_user cookie
-    try {
-      const match = document.cookie.match(/(?:^|;\s*)agile_user=([^;]+)/);
-      if (match && match[1]) {
-        const parsed = JSON.parse(decodeURIComponent(match[1]));
-        if (parsed.access_level) {
-          resolvedAccess = parseAccessLevel(parsed.access_level);
-        }
-      }
-    } catch {}
-
-    setAccessLevel(resolvedAccess);
-
-    // Reconcile initial mode
-    if (resolvedAccess === "sales") {
-      setModeState("sales");
-    } else if (resolvedAccess === "marketing") {
-      setModeState("marketing");
-    } else {
-      // User has "both" access: load preference from localStorage or default to "sales"
+  const [accessLevel, setAccessLevel] = React.useState<AccessLevel>(() => {
+    if (typeof document !== "undefined") {
       try {
-        const saved = localStorage.getItem(STORAGE_KEY) as AppMode | null;
-        if (saved === "marketing" || saved === "sales") {
-          setModeState(saved);
-        } else {
-          setModeState("sales");
+        const match = document.cookie.match(/(?:^|;\s*)agile_user=([^;]+)/);
+        if (match && match[1]) {
+          const parsed = JSON.parse(decodeURIComponent(match[1]));
+          if (parsed.access_level) {
+            return parseAccessLevel(parsed.access_level);
+          }
         }
-      } catch {
-        setModeState("sales");
-      }
+      } catch {}
     }
+    return "both";
+  });
 
-    // 2. Background verify with /api/auth/me to stay in sync
+  const [modeState, setModeState] = React.useState<AppMode>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        if (window.location.pathname.startsWith("/marketing")) return "marketing";
+        if (window.location.pathname.startsWith("/sales")) return "sales";
+        const params = new URLSearchParams(window.location.search);
+        const queryMode = params.get("mode") as AppMode | null;
+        if (queryMode === "marketing" || queryMode === "sales") return queryMode;
+        const saved = localStorage.getItem(STORAGE_KEY) as AppMode | null;
+        if (saved === "marketing" || saved === "sales") return saved;
+      } catch {}
+    }
+    return "marketing";
+  });
+
+  const isLoading = false;
+
+  // Derived mode: when the route path explicitly starts with /marketing or /sales, it takes priority
+  const mode: AppMode = React.useMemo(() => {
+    if (pathname?.startsWith("/marketing")) return "marketing";
+    if (pathname?.startsWith("/sales")) return "sales";
+    return modeState;
+  }, [pathname, modeState]);
+
+  // Background verify with /api/auth/me to stay in sync
+  React.useEffect(() => {
+    let isMounted = true;
     async function verifyUser() {
       try {
         const resp = await fetch("/api/auth/me");
-        if (resp.ok) {
+        if (resp.ok && isMounted) {
           const data = await resp.json();
           if (data && data.access_level) {
             const apiAccess = parseAccessLevel(data.access_level);
@@ -85,19 +89,20 @@ export const AppModeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       } catch {
         // Fallback to cookie / initial state
-      } finally {
-        setIsLoading(false);
       }
     }
 
     verifyUser();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const canToggle = accessLevel === "both";
 
   const setMode = React.useCallback(
     (newMode: AppMode) => {
-      if (!canToggle) return; // Locked to assigned view
+      if (!canToggle) return;
       setModeState(newMode);
       try {
         localStorage.setItem(STORAGE_KEY, newMode);
@@ -128,9 +133,9 @@ export const AppModeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 };
 
 export function useAppMode(): AppModeContextValue {
-  const context = React.useContext(AppModeContext);
-  if (!context) {
+  const ctx = React.useContext(AppModeContext);
+  if (!ctx) {
     throw new Error("useAppMode must be used within an AppModeProvider");
   }
-  return context;
+  return ctx;
 }

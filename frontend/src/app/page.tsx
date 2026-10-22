@@ -37,11 +37,16 @@ import {
   PipelineItem,
 } from "@/services/pipelineService";
 import { useAppMode } from "@/contexts/AppModeContext";
-import { MarketingDashboardSkeleton } from "@/components/marketing/marketing-dashboard-skeleton";
+import { MarketingDashboard } from "@/components/marketing/marketing-dashboard";
 
-export default function DashboardPage() {
+export default function DashboardPage({
+  forcedMode,
+}: {
+  forcedMode?: "sales" | "marketing";
+} = {}) {
   const { mode } = useAppMode();
-  const isMarketing = mode === "marketing";
+  const effectiveMode = forcedMode || mode;
+  const isMarketing = effectiveMode === "marketing";
 
   const [modalOpen, setModalOpen] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState("calls");
@@ -120,7 +125,7 @@ export default function DashboardPage() {
   return (
     <AppShell onNewCampaignClick={() => setModalOpen(true)}>
       {isMarketing ? (
-        <MarketingDashboardSkeleton />
+        <MarketingDashboard />
       ) : (
         <>
           {/* Page Title & Top Actions */}

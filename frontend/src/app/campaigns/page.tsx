@@ -55,8 +55,9 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useAppMode } from "@/contexts/AppModeContext";
+import MarketingCampaignsPage from "@/app/marketing/campaigns/page";
 
-export default function CampaignsPage() {
+export function SalesCampaignsContent() {
   const { mode } = useAppMode();
   const isMarketing = mode === "marketing";
 
@@ -125,8 +126,35 @@ export default function CampaignsPage() {
   }, [searchQuery, statusFilter, typeFilter, currentPage, pageSize]);
 
   React.useEffect(() => {
-    loadCampaigns();
-  }, [loadCampaigns]);
+    let isMounted = true;
+    (async () => {
+      try {
+        const data = await fetchCampaigns({
+          searchQuery: searchQuery || undefined,
+          status: statusFilter !== "ALL" ? statusFilter : undefined,
+          type: typeFilter !== "ALL" ? typeFilter : undefined,
+          skip: (currentPage - 1) * pageSize,
+          limit: pageSize,
+        });
+        if (isMounted) {
+          setCampaignsList(data.campaigns);
+          setTotalCampaigns(data.total);
+          setHasError(false);
+          setErrorMessage(null);
+        }
+      } catch (err: unknown) {
+        if (isMounted) {
+          setHasError(true);
+          setErrorMessage(err instanceof Error ? err.message : "Failed to load campaigns from backend.");
+        }
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, [searchQuery, statusFilter, typeFilter, currentPage, pageSize]);
 
   // Client-side sort/filter fallback
   const filteredCampaigns = React.useMemo(() => {
@@ -854,4 +882,12 @@ export default function CampaignsPage() {
       </Modal>
     </AppShell>
   );
+}
+
+export default function CampaignsPage() {
+  const { mode } = useAppMode();
+  if (mode === "marketing") {
+    return <MarketingCampaignsPage />;
+  }
+  return <SalesCampaignsContent />;
 }

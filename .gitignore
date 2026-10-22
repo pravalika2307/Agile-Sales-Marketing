@@ -52,3 +52,5 @@ Thumbs.db
 *.dump
 meeting_transcript.txt
 
+# Run artifacts & PIDs
+.run/
