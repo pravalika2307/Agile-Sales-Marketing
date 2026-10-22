@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
       email: user.email,
       name: user.full_name,
       role: user.role,
+      access_level: user.access_level || "both",
       organization_id: organization?.id || user.organization_id,
       organization_name: organization?.name || "Agile Sales & Marketing",
     };

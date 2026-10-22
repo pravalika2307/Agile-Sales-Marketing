@@ -54,8 +54,12 @@ import {
   X,
   CheckCircle2,
 } from "lucide-react";
+import { useAppMode } from "@/contexts/AppModeContext";
 
 export default function CampaignsPage() {
+  const { mode } = useAppMode();
+  const isMarketing = mode === "marketing";
+
   // Real backend campaigns state
   const [campaignsList, setCampaignsList] = React.useState<CampaignItem[]>([]);
   const [totalCampaigns, setTotalCampaigns] = React.useState(0);
@@ -307,10 +311,12 @@ export default function CampaignsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-1">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-header">
-            Campaigns
+            {isMarketing ? "Marketing Campaigns" : "Campaigns"}
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Create, manage, and monitor your outreach campaigns.
+            {isMarketing
+              ? "Create, manage, and monitor your marketing broadcasts and nurture sequences."
+              : "Create, manage, and monitor your outreach campaigns."}
           </p>
         </div>
 
@@ -434,7 +440,7 @@ export default function CampaignsPage() {
       <div className="flex items-center justify-between pt-1">
         <div className="flex items-center gap-2.5">
           <h2 className="text-base font-bold text-header">
-            Outreach Campaigns
+            {isMarketing ? "Marketing Campaigns" : "Outreach Campaigns"}
           </h2>
           <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold text-xs border border-slate-200">
             {totalCampaigns} campaigns
@@ -503,7 +509,9 @@ export default function CampaignsPage() {
                 No campaigns yet
               </h3>
               <p className="text-xs text-slate-500 mt-1 max-w-sm">
-                Create a campaign to start organizing your sales outreach and sequence cadence.
+                {isMarketing
+                  ? "Create a campaign to start organizing your marketing sequences and social broadcasts."
+                  : "Create a campaign to start organizing your sales outreach and sequence cadence."}
               </p>
             </div>
             <div className="flex items-center gap-2 pt-2">
@@ -518,7 +526,7 @@ export default function CampaignsPage() {
               </Button>
               <Link href="/leads">
                 <Button variant="secondary" size="sm" className="text-xs">
-                  View Leads
+                  {isMarketing ? "View Audience" : "View Leads"}
                 </Button>
               </Link>
             </div>

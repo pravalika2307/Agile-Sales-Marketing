@@ -25,6 +25,7 @@ import {
   Trash2,
   TableProperties,
 } from "lucide-react";
+import { useAppMode } from "@/contexts/AppModeContext";
 
 export interface LeadListsViewProps {
   lists: ContactListItem[];
@@ -53,6 +54,9 @@ export const LeadListsView: React.FC<LeadListsViewProps> = ({
   onEditList,
   onDeleteList,
 }) => {
+  const { mode } = useAppMode();
+  const isMarketing = mode === "marketing";
+
   const [searchQuery, setSearchQuery] = React.useState("");
   const [activeCategory, setActiveCategory] = React.useState<"ALL" | "source" | "industry" | "custom">("ALL");
 
@@ -147,10 +151,12 @@ export const LeadListsView: React.FC<LeadListsViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-header">
-            Leads
+            {isMarketing ? "Audience & Lists" : "Leads"}
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Review and organize prospect leads by verified sources, industry segments, and targeted lists.
+            {isMarketing
+              ? "Review and organize your subscriber audience, segments, and targeted lists."
+              : "Review and organize prospect leads by verified sources, industry segments, and targeted lists."}
           </p>
         </div>
 
@@ -184,7 +190,7 @@ export const LeadListsView: React.FC<LeadListsViewProps> = ({
             className="text-xs inline-flex items-center gap-1.5 border-slate-200 hover:bg-slate-50"
           >
             <Plus className="w-3.5 h-3.5 text-slate-600" />
-            <span>Add Lead</span>
+            <span>{isMarketing ? "Add Contact" : "Add Lead"}</span>
           </Button>
 
           <Button
@@ -210,7 +216,7 @@ export const LeadListsView: React.FC<LeadListsViewProps> = ({
               {lists.length}
             </p>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Organized lead groups
+              {isMarketing ? "Organized audience groups" : "Organized lead groups"}
             </p>
           </CardContent>
         </Card>
@@ -224,7 +230,7 @@ export const LeadListsView: React.FC<LeadListsViewProps> = ({
               {sourceListsCount}
             </p>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              HubSpot, CSV, & Manual leads
+              {isMarketing ? "HubSpot, CSV, & Manual contacts" : "HubSpot, CSV, & Manual leads"}
             </p>
           </CardContent>
         </Card>
@@ -322,10 +328,10 @@ export const LeadListsView: React.FC<LeadListsViewProps> = ({
             size="sm"
             onClick={onBrowseAllLeads}
             className="text-xs text-slate-600 hover:text-header shrink-0 hidden md:inline-flex items-center gap-1"
-            title="Switch to unorganized individual leads view"
+            title={isMarketing ? "Switch to unorganized individual contacts view" : "Switch to unorganized individual leads view"}
           >
             <TableProperties className="w-3.5 h-3.5 text-slate-500" />
-            <span>All Leads Table</span>
+            <span>{isMarketing ? "All Audience Table" : "All Leads Table"}</span>
           </Button>
         </div>
       </div>
@@ -355,10 +361,14 @@ export const LeadListsView: React.FC<LeadListsViewProps> = ({
             <Filter className="w-6 h-6" />
           </div>
           <div className="space-y-1 max-w-md mx-auto">
-            <h3 className="text-sm font-bold text-header">No lead lists found</h3>
+            <h3 className="text-sm font-bold text-header">
+              {isMarketing ? "No audience lists found" : "No lead lists found"}
+            </h3>
             <p className="text-xs text-slate-500">
               {searchQuery
                 ? `No lists matched "${searchQuery}". Try adjusting your search query.`
+                : isMarketing
+                ? "Sync your sources or create your first targeted list to organize your subscriber audience."
                 : "Sync your sources or create your first targeted list to organize your prospect audience."}
             </p>
           </div>

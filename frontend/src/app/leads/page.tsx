@@ -80,8 +80,12 @@ import {
   ArrowLeft,
   ListOrdered,
 } from "lucide-react";
+import { useAppMode } from "@/contexts/AppModeContext";
 
 function LeadsPageContent() {
+  const { mode } = useAppMode();
+  const isMarketing = mode === "marketing";
+
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -336,6 +340,10 @@ function LeadsPageContent() {
       setCreateLeadError("First name and Company name are required.");
       return;
     }
+    if (!newLeadForm.email.trim()) {
+      setCreateLeadError("Email is required.");
+      return;
+    }
     setIsCreatingLead(true);
     setCreateLeadError(null);
     try {
@@ -490,7 +498,9 @@ function LeadsPageContent() {
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Back to Lists</span>
               </Button>
-              <h2 className="text-lg font-bold text-header">All Prospect Leads ({totalLeads})</h2>
+              <h2 className="text-lg font-bold text-header">
+                {isMarketing ? "All Contacts & Audience" : "All Prospect Leads"} ({totalLeads})
+              </h2>
             </div>
 
             <div className="flex items-center gap-2">
@@ -510,7 +520,7 @@ function LeadsPageContent() {
                 className="text-xs inline-flex items-center gap-1.5 bg-agile-red hover:bg-agile-red/90 text-white"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Add Lead</span>
+                <span>{isMarketing ? "Add Contact" : "Add Lead"}</span>
               </Button>
             </div>
           </div>
@@ -650,11 +660,13 @@ function LeadsPageContent() {
       <Modal
         isOpen={isCreateListModalOpen}
         onClose={() => setIsCreateListModalOpen(false)}
-        title="Create New Lead List"
+        title={isMarketing ? "Create New Audience List" : "Create New Lead List"}
       >
         <div className="space-y-4">
           <p className="text-xs text-slate-600">
-            Create a static list to organize prospects for campaigns, sales calls, or segmented outreach.
+            {isMarketing
+              ? "Create a static list to organize audience members for campaigns, newsletters, or segmented broadcasts."
+              : "Create a static list to organize prospects for campaigns, sales calls, or segmented outreach."}
           </p>
 
           {createListError && (
@@ -812,11 +824,17 @@ function LeadsPageContent() {
 
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="text-xs font-semibold text-slate-700">Email</label>
+              <label className="text-xs font-semibold text-slate-700">Email *</label>
               <Input
                 placeholder="jane@company.com"
                 value={newLeadForm.email}
-                onChange={(e) => setNewLeadForm({ ...newLeadForm, email: e.target.value })}
+                error={createLeadError === "Email is required." ? createLeadError : undefined}
+                onChange={(e) => {
+                  setNewLeadForm({ ...newLeadForm, email: e.target.value });
+                  if (createLeadError === "Email is required.") {
+                    setCreateLeadError(null);
+                  }
+                }}
                 className="mt-1 h-8 text-xs"
               />
             </div>

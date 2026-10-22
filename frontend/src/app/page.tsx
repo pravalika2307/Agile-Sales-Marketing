@@ -36,8 +36,13 @@ import {
   fetchPipelines,
   PipelineItem,
 } from "@/services/pipelineService";
+import { useAppMode } from "@/contexts/AppModeContext";
+import { MarketingDashboardSkeleton } from "@/components/marketing/marketing-dashboard-skeleton";
 
 export default function DashboardPage() {
+  const { mode } = useAppMode();
+  const isMarketing = mode === "marketing";
+
   const [modalOpen, setModalOpen] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState("calls");
   const [timeRange, setTimeRange] = React.useState("30d");
@@ -114,12 +119,16 @@ export default function DashboardPage() {
 
   return (
     <AppShell onNewCampaignClick={() => setModalOpen(true)}>
-      {/* Page Title & Top Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-header">
-            Sales & Marketing Operations
-          </h1>
+      {isMarketing ? (
+        <MarketingDashboardSkeleton />
+      ) : (
+        <>
+          {/* Page Title & Top Actions */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-header">
+                Sales & Marketing Operations
+              </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             Real-time pipeline analytics, direct omnichannel outreach, and verified conversion metrics.
           </p>
@@ -668,6 +677,8 @@ export default function DashboardPage() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
 
       {/* Campaign Launch Modal */}
       <Modal

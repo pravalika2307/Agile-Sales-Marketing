@@ -103,6 +103,7 @@ def register_user(
             hashed_password=hashed_pw,
             full_name=request.full_name.strip(),
             role="owner",
+            access_level=request.access_level or "both" if hasattr(request, "access_level") and request.access_level else "both",
             is_active=True,
         )
         db.add(user)
