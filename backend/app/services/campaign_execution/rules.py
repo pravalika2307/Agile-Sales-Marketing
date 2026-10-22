@@ -216,7 +216,8 @@ def evaluate_subsequent_step_eligibility(
         )
 
     # 7. Meeting Requested Stop Condition
-    if has_meeting_requested:
+    # Halts cold sequence progression unless this step is the explicit meeting follow-up step
+    if has_meeting_requested and required_condition != "meeting_requested":
         return ContactEvaluation(
             campaign_contact_id=cc_id,
             result=EvaluationResult.SKIPPED,
@@ -232,13 +233,73 @@ def evaluate_subsequent_step_eligibility(
             reason=f"Previous step delivery is not 'sent' (current status: '{prev_status}').",
         )
 
-    # 8.5 Required Condition Rule (e.g. email_opened)
-    if required_condition == "email_opened" and last_sent_outreach and last_sent_outreach.first_opened_at is None:
-        return ContactEvaluation(
-            campaign_contact_id=cc_id,
-            result=EvaluationResult.SKIPPED,
-            reason=f"Step {next_step.step_number} requires previous email to be opened before advancing.",
-        )
+    # 8.5 Required Condition Rule (e.g. email_opened, meeting_requested, interested, etc.)
+    if required_condition:
+        if required_condition == "email_opened":
+            if last_sent_outreach and last_sent_outreach.first_opened_at is None:
+                return ContactEvaluation(
+                    campaign_contact_id=cc_id,
+                    result=EvaluationResult.SKIPPED,
+                    reason=f"Step {next_step.step_number} requires previous email to be opened before advancing.",
+                )
+        elif required_condition == "meeting_requested":
+            call_rec = getattr(last_sent_outreach, "call_record", None) if last_sent_outreach else None
+            is_meeting = False
+            if call_rec:
+                if call_rec.call_outcome in ("MEETING_REQUESTED", "QUALIFIED"):
+                    is_meeting = True
+                elif isinstance(call_rec.collected_variables, dict) and call_rec.collected_variables.get("meeting_requested"):
+                    is_meeting = True
+            if not is_meeting and not has_meeting_requested:
+                return ContactEvaluation(
+                    campaign_contact_id=cc_id,
+                    result=EvaluationResult.SKIPPED,
+                    reason=f"Step {next_step.step_number} requires meeting_requested outcome from voice call.",
+                )
+        elif required_condition in ("interested", "interested_details"):
+            call_rec = getattr(last_sent_outreach, "call_record", None) if last_sent_outreach else None
+            is_interested = False
+            if call_rec:
+                if call_rec.call_outcome in ("INTERESTED", "QUALIFIED", "MEETING_REQUESTED"):
+                    is_interested = True
+                elif isinstance(call_rec.collected_variables, dict) and call_rec.collected_variables.get("interest_level") in ("high", "medium"):
+                    is_interested = True
+            if not is_interested:
+                return ContactEvaluation(
+                    campaign_contact_id=cc_id,
+                    result=EvaluationResult.SKIPPED,
+                    reason=f"Step {next_step.step_number} requires positive interest outcome from voice call.",
+                )
+        elif required_condition == "not_interested":
+            call_rec = getattr(last_sent_outreach, "call_record", None) if last_sent_outreach else None
+            if not call_rec or call_rec.call_outcome != "NOT_INTERESTED":
+                return ContactEvaluation(
+                    campaign_contact_id=cc_id,
+                    result=EvaluationResult.SKIPPED,
+                    reason=f"Step {next_step.step_number} requires not_interested outcome from voice call.",
+                )
+        elif required_condition in ("call_failed", "no_answer"):
+            call_rec = getattr(last_sent_outreach, "call_record", None) if last_sent_outreach else None
+            is_failed = False
+            if call_rec:
+                if call_rec.call_status == "failed" or call_rec.call_outcome in ("UNAVAILABLE", "NO_ANSWER"):
+                    is_failed = True
+                elif call_rec.disconnection_reason in ("no_answer", "busy", "failed", "dial_error"):
+                    is_failed = True
+            if not is_failed:
+                return ContactEvaluation(
+                    campaign_contact_id=cc_id,
+                    result=EvaluationResult.SKIPPED,
+                    reason=f"Step {next_step.step_number} requires call_failed / no_answer outcome.",
+                )
+        elif required_condition == "call_completed":
+            call_rec = getattr(last_sent_outreach, "call_record", None) if last_sent_outreach else None
+            if not call_rec or call_rec.call_status not in ("ended", "analyzed"):
+                return ContactEvaluation(
+                    campaign_contact_id=cc_id,
+                    result=EvaluationResult.SKIPPED,
+                    reason=f"Step {next_step.step_number} requires completed voice call before advancing.",
+                )
 
     # 9. Delay Elapsed Rule
     sent_time = last_sent_outreach.sent_at or last_sent_outreach.created_at

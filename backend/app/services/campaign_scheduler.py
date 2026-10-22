@@ -151,7 +151,7 @@ class CampaignSchedulerService:
                 wf_nodes = camp.workflow_config.get("nodes", [])
                 comm_nodes = [
                     n for n in wf_nodes
-                    if isinstance(n, dict) and n.get("type") in ("email", "sms")
+                    if isinstance(n, dict) and n.get("type") in ("email", "sms", "voice")
                 ]
                 synth_steps = []
                 for s_num, n in enumerate(comm_nodes, start=1):
@@ -336,11 +336,17 @@ class CampaignSchedulerService:
                         rendered_subj = (
                             render_template(step_1.subject_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
                             if step_1.subject_template
-                            else (None if step1_channel == "sms" else "")
+                            else (None if step1_channel in ("sms", "voice") else "")
                         )
-                        rendered_body = render_template(step_1.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url) if step_1.body_template else ""
+                        rendered_body = (
+                            render_template(step_1.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                            if step_1.body_template
+                            else (None if step1_channel == "voice" else "")
+                        )
 
-                        unresolved = (find_unresolved_placeholders(rendered_subj) if rendered_subj else []) + (find_unresolved_placeholders(rendered_body) if rendered_body else [])
+                        unresolved = []
+                        if step1_channel != "voice":
+                            unresolved = (find_unresolved_placeholders(rendered_subj) if rendered_subj else []) + (find_unresolved_placeholders(rendered_body) if rendered_body else [])
                         if unresolved:
                             result.error_count += 1
                             result.details.append({
@@ -421,13 +427,13 @@ class CampaignSchedulerService:
                         required_condition = None
                         if camp.workflow_config and isinstance(camp.workflow_config, dict):
                             w_nodes = camp.workflow_config.get("nodes", [])
-                            email_idx = 1
+                            comm_idx = 1
                             for wn in w_nodes:
-                                if wn.get("type") == "email":
-                                    if email_idx == next_step_num:
+                                if isinstance(wn, dict) and wn.get("type") in ("email", "sms", "voice"):
+                                    if comm_idx == next_step_num:
                                         required_condition = wn.get("config", {}).get("condition_type")
                                         break
-                                    email_idx += 1
+                                    comm_idx += 1
 
                         evaluation = evaluate_subsequent_step_eligibility(
                             campaign=camp,
@@ -464,11 +470,17 @@ class CampaignSchedulerService:
                         rendered_subj = (
                             render_template(next_step.subject_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
                             if next_step.subject_template
-                            else (None if next_channel == "sms" else "")
+                            else (None if next_channel in ("sms", "voice") else "")
                         )
-                        rendered_body = render_template(next_step.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url) if next_step.body_template else ""
+                        rendered_body = (
+                            render_template(next_step.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                            if next_step.body_template
+                            else (None if next_channel == "voice" else "")
+                        )
 
-                        unresolved = (find_unresolved_placeholders(rendered_subj) if rendered_subj else []) + (find_unresolved_placeholders(rendered_body) if rendered_body else [])
+                        unresolved = []
+                        if next_channel != "voice":
+                            unresolved = (find_unresolved_placeholders(rendered_subj) if rendered_subj else []) + (find_unresolved_placeholders(rendered_body) if rendered_body else [])
                         if unresolved:
                             result.error_count += 1
                             result.details.append({

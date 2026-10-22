@@ -41,10 +41,12 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.normalization import normalize_email
 from app.models.call_record import CallRecord
+from app.models.campaign import CampaignContact
 from app.models.crm import Contact
 from app.models.lead import Lead
 from app.models.outreach import Outreach, OutreachEvent
 from app.models.tenant import Organization
+from app.services.organization_config import get_organization_booking_url
 from app.services.outreach.base import EmailMessage, EmailProvider
 from app.services.outreach.providers import get_email_provider
 
@@ -771,6 +773,7 @@ class VoiceFollowUpService:
         organization: Optional[Organization] = None,
         contact: Optional[Contact] = None,
         lead: Optional[Lead] = None,
+        booking_url: Optional[str] = None,
     ) -> Tuple[str, str]:
         """
         Renders safe, factual email subject and body for voice follow-up.
@@ -804,10 +807,12 @@ class VoiceFollowUpService:
         if decision.followup_type in (FOLLOWUP_TYPE_INTERESTED, FOLLOWUP_TYPE_QUALIFIED):
             subject = f"Great speaking with you, {first_name}" if has_name else "Great speaking with you earlier"
             greeting = f"Hi {first_name}," if has_name else "Hello,"
+            booking_section = f"If you'd like to book a quick walk-through:\n{booking_url.strip()}\n\n" if booking_url and booking_url.strip() else ""
             body = (
                 f"{greeting}\n\n"
                 f"Thanks for speaking with us today.\n\n"
-                f"Based on our conversation, we'd be happy to continue the discussion and help with the next steps.\n\n"
+                f"Based on our conversation, we'd be happy to share details about how our platform streamlines B2B outreach and pipeline execution.\n\n"
+                f"{booking_section}"
                 f"Best,\n"
                 f"{sender_name}\n"
                 f"{sender_company}"
@@ -817,15 +822,28 @@ class VoiceFollowUpService:
         if decision.followup_type == FOLLOWUP_TYPE_MEETING:
             subject = f"Great speaking with you, {first_name}" if has_name else "Great speaking with you earlier"
             greeting = f"Hi {first_name}," if has_name else "Hello,"
-            body = (
-                f"{greeting}\n\n"
-                f"Thanks for speaking with us today.\n\n"
-                f"We look forward to connecting for our upcoming meeting. "
-                f"Our team will follow up shortly with scheduling details and the next steps.\n\n"
-                f"Best,\n"
-                f"{sender_name}\n"
-                f"{sender_company}"
-            )
+            if booking_url and booking_url.strip():
+                body = (
+                    f"{greeting}\n\n"
+                    f"Thanks for speaking with us today.\n\n"
+                    f"We look forward to connecting for our upcoming meeting. "
+                    f"You can choose a convenient time on our calendar here:\n"
+                    f"{booking_url.strip()}\n\n"
+                    f"Our team will follow up with scheduling confirmation.\n\n"
+                    f"Best,\n"
+                    f"{sender_name}\n"
+                    f"{sender_company}"
+                )
+            else:
+                body = (
+                    f"{greeting}\n\n"
+                    f"Thanks for speaking with us today.\n\n"
+                    f"We look forward to connecting for our upcoming meeting. "
+                    f"Our team will follow up shortly with scheduling details and the next steps.\n\n"
+                    f"Best,\n"
+                    f"{sender_name}\n"
+                    f"{sender_company}"
+                )
             return subject, body
 
         if decision.followup_type == FOLLOWUP_TYPE_CALLBACK:
@@ -1204,7 +1222,9 @@ class VoiceFollowUpService:
         ).scalar_one_or_none()
 
         if existing:
-            existing.call_status = "in_progress"
+            # Out-of-order guard: never regress higher lifecycle states (ended, analyzed)
+            if existing.call_status not in ("ended", "analyzed"):
+                existing.call_status = "in_progress"
             existing.started_at = data.started_at or existing.started_at
             self.db.commit()
             return existing
@@ -1254,10 +1274,46 @@ class VoiceFollowUpService:
             )
             self.db.add(record)
         else:
-            record.call_status = "ended"
+            # Out-of-order guard: never regress an already analyzed call
+            if record.call_status != "analyzed":
+                record.call_status = "ended"
             record.duration_ms = data.duration_ms or record.duration_ms
             record.disconnection_reason = data.disconnection_reason or record.disconnection_reason
             record.ended_at = data.ended_at or datetime.now(timezone.utc)
+
+        # Check for in-flight voice outreach and handle failures/no-answer
+        outreach_id_cand = (
+            data.metadata_json.get("outreach_id")
+            if isinstance(data.metadata_json, dict)
+            else None
+        )
+        linked_outreach = None
+        if outreach_id_cand:
+            try:
+                linked_outreach = self.db.get(Outreach, uuid.UUID(str(outreach_id_cand)))
+            except (ValueError, TypeError):
+                pass
+        if not linked_outreach:
+            linked_outreach = (
+                self.db.query(Outreach)
+                .filter(Outreach.call_record_id == record.id, Outreach.organization_id == org.id)
+                .first()
+            )
+
+        if linked_outreach and linked_outreach.status == "sending":
+            failure_reasons = {"no_answer", "busy", "failed", "dial_error", "machine_detected", "voicemail"}
+            disc = (data.disconnection_reason or "").lower()
+            if any(f in disc for f in failure_reasons) or data.call_status == "error":
+                linked_outreach.status = "failed"
+                record.call_status = "failed"
+                fail_evt = OutreachEvent(
+                    organization_id=org.id,
+                    outreach_id=linked_outreach.id,
+                    event_type="failed",
+                    event_metadata={"call_id": data.call_id, "reason": data.disconnection_reason},
+                    occurred_at=data.ended_at or datetime.now(timezone.utc),
+                )
+                self.db.add(fail_evt)
 
         self.db.commit()
         return record
@@ -1365,6 +1421,64 @@ class VoiceFollowUpService:
             except (ValueError, TypeError):
                 pass
 
+        # 1.5 Update linked voice outreach and campaign enrollment
+        outreach_id_cand = (
+            data.metadata_json.get("outreach_id")
+            if isinstance(data.metadata_json, dict)
+            else None
+        )
+        linked_outreach = None
+        if outreach_id_cand:
+            try:
+                linked_outreach = self.db.get(Outreach, uuid.UUID(str(outreach_id_cand)))
+            except (ValueError, TypeError):
+                pass
+        if not linked_outreach:
+            linked_outreach = (
+                self.db.query(Outreach)
+                .filter(
+                    Outreach.call_record_id == call_record.id,
+                    Outreach.organization_id == org.id,
+                    Outreach.channel == "voice",
+                )
+                .first()
+            )
+
+        if linked_outreach and linked_outreach.status == "sending":
+            disc = (data.disconnection_reason or "").lower()
+            if "fail" in disc or "error" in disc or data.call_outcome in ("UNAVAILABLE", "NO_ANSWER"):
+                linked_outreach.status = "failed"
+                self.db.add(
+                    OutreachEvent(
+                        organization_id=org.id,
+                        outreach_id=linked_outreach.id,
+                        event_type="failed",
+                        event_metadata={"call_id": data.call_id, "reason": data.disconnection_reason or data.call_outcome},
+                        occurred_at=datetime.now(timezone.utc),
+                    )
+                )
+            else:
+                linked_outreach.status = "sent"
+                linked_outreach.sent_at = call_record.ended_at or data.ended_at or datetime.now(timezone.utc)
+                self.db.add(
+                    OutreachEvent(
+                        organization_id=org.id,
+                        outreach_id=linked_outreach.id,
+                        event_type="sent",
+                        event_metadata={"call_id": data.call_id, "call_outcome": data.call_outcome},
+                        occurred_at=linked_outreach.sent_at,
+                    )
+                )
+
+        # Halt further cold outreach if contact requested meeting or opted out
+        if linked_outreach and linked_outreach.campaign_contact_id:
+            cc = self.db.get(CampaignContact, linked_outreach.campaign_contact_id)
+            if cc and cc.enrollment_status == "in_progress":
+                if data.meeting_requested or data.call_outcome == OUTCOME_MEETING_REQUESTED:
+                    cc.enrollment_status = "completed"
+                elif data.do_not_contact or data.call_outcome == OUTCOME_DO_NOT_CONTACT:
+                    cc.enrollment_status = "completed"
+
         # 2. Resolve authoritative recipient email
         authoritative_email, is_missing_email = self.resolve_authoritative_recipient_email(data, lead, contact)
 
@@ -1411,15 +1525,20 @@ class VoiceFollowUpService:
         idempotency_key = f"{data.call_id}:{decision.followup_type}"
 
         # ── IDEMPOTENCY CHECK ─────────────────────────────────────────────────
-        if call_record.followup_idempotency_key == idempotency_key and call_record.followup_status == "sent":
+        if call_record.followup_idempotency_key == idempotency_key and call_record.followup_status in ("sent", "skipped"):
+            reason_msg = (
+                "Follow-up email already sent (idempotent duplicate skipped)"
+                if call_record.followup_status == "sent"
+                else "Follow-up evaluation already completed (idempotent duplicate skipped)"
+            )
             return {
                 "status": "success",
                 "call_id": data.call_id,
                 "event": "call_analyzed",
                 "duplicate": True,
                 "email_sent": False,
-                "followup_status": "sent",
-                "followup_reason": "Follow-up email already sent (idempotent duplicate skipped)",
+                "followup_status": call_record.followup_status,
+                "followup_reason": reason_msg,
                 "followup_email_id": str(call_record.followup_email_id) if call_record.followup_email_id else None,
                 "extracted_variables": {
                     "lead_full_name": decision.recipient_name or data.lead_full_name,
@@ -1437,6 +1556,7 @@ class VoiceFollowUpService:
         if not decision.should_send_email:
             call_record.followup_status = "skipped"
             call_record.followup_reason = decision.reason
+            call_record.followup_idempotency_key = idempotency_key
             self.db.commit()
 
             return {
@@ -1483,6 +1603,7 @@ class VoiceFollowUpService:
             )
             call_record.followup_status = "skipped"
             call_record.followup_reason = cooldown_reason
+            call_record.followup_idempotency_key = idempotency_key
             self.db.commit()
 
             return {
@@ -1508,13 +1629,15 @@ class VoiceFollowUpService:
                 },
             }
 
-        # Render Safe Email Content
+        # Render Safe Email Content with Organization Configured Booking URL
+        booking_url = get_organization_booking_url(self.db, org.id)
         subject, body = self.render_email_content(
             decision,
             data,
             organization=org,
             contact=contact,
             lead=lead,
+            booking_url=booking_url,
         )
         recipient_email = decision.recipient_email
 
@@ -1537,9 +1660,27 @@ class VoiceFollowUpService:
 
         # Audit Log: Create Outreach Record
         outreach_status = "sent" if send_result.success else "failed"
+        campaign_contact_id = (
+            linked_outreach.campaign_contact_id
+            if linked_outreach and linked_outreach.campaign_contact_id
+            else None
+        )
+        if not campaign_contact_id and call_record.campaign_id and contact:
+            cc_rec = (
+                self.db.query(CampaignContact)
+                .filter(
+                    CampaignContact.campaign_id == call_record.campaign_id,
+                    CampaignContact.contact_id == contact.id,
+                )
+                .first()
+            )
+            if cc_rec:
+                campaign_contact_id = cc_rec.id
+
         outreach_record = Outreach(
             organization_id=org.id,
             campaign_id=call_record.campaign_id,
+            campaign_contact_id=campaign_contact_id,
             channel="email",
             status=outreach_status,
             subject=subject,

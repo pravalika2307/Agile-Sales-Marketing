@@ -366,6 +366,74 @@ class RetellClient:
             raw_data=data,
         )
 
+    # ── Call Operations ───────────────────────────────────────────────────────
+
+    def create_phone_call(
+        self,
+        from_number: str,
+        to_number: str,
+        override_agent_id: Optional[str] = None,
+        dynamic_variables: Optional[Dict[str, str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Initiates an outbound phone call via the official Retell REST API: POST /v2/create-phone-call.
+
+        Parameters:
+        - from_number: E.164 phone number purchased or registered with Retell.
+        - to_number: Destination E.164 phone number.
+        - override_agent_id: Optional agent ID to handle the call (defaults to Retell phone number agent).
+        - dynamic_variables: Key-value string pairs passed to the agent LLM prompt.
+        - metadata: Arbitrary key-value metadata preserved through call webhooks.
+
+        Returns:
+        Dictionary representing the created Call object containing call_id, call_status, etc.
+        """
+        if not self.is_configured:
+            raise RetellConfigurationError("Retell API key is not configured in settings.")
+
+        clean_from = (from_number or "").strip()
+        clean_to = (to_number or "").strip()
+
+        if not clean_from:
+            raise ValueError("from_number must not be empty.")
+        if not clean_to:
+            raise ValueError("to_number must not be empty.")
+
+        payload: Dict[str, Any] = {
+            "from_number": clean_from,
+            "to_number": clean_to,
+        }
+
+        if override_agent_id and override_agent_id.strip():
+            payload["override_agent_id"] = override_agent_id.strip()
+
+        if dynamic_variables and isinstance(dynamic_variables, dict):
+            # Ensure all values are strings per Retell LLM dynamic variables specification
+            clean_vars = {
+                str(k): str(v) if v is not None else ""
+                for k, v in dynamic_variables.items()
+                if k is not None
+            }
+            payload["retell_llm_dynamic_variables"] = clean_vars
+
+        if metadata and isinstance(metadata, dict):
+            payload["metadata"] = metadata
+
+        logger.info(
+            "Creating outbound Retell call from %s to %s (override_agent_id=%s)",
+            clean_from,
+            clean_to,
+            override_agent_id,
+        )
+
+        resp = self._execute_request("POST", "/v2/create-phone-call", json_payload=payload)
+        data = resp.json()
+        if not isinstance(data, dict):
+            raise RetellAPIError(500, "Unexpected non-dictionary response from Retell /v2/create-phone-call.")
+
+        return data
+
     # ── Connection & Health Probe ─────────────────────────────────────────────
 
     def check_connection(self) -> RetellConnectionStatus:

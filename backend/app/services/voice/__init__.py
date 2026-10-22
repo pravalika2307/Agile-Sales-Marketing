@@ -15,6 +15,18 @@ from app.services.voice.retell_client import (
     get_retell_client,
 )
 
+from app.services.voice.service import (
+    InvalidPhoneNumberError,
+    VoiceConfigurationError,
+    VoiceConsentSuppressedError,
+    VoiceLiveCallingDisabledError,
+    VoiceServiceError,
+    check_voice_consent,
+    initiate_outbound_call,
+    send_voice_outreach,
+    validate_recipient_phone,
+)
+
 __all__ = [
     "RetellClient",
     "get_retell_client",
@@ -29,4 +41,13 @@ __all__ = [
     "RetellAgentSummary",
     "RetellAgentDetail",
     "RetellConnectionStatus",
+    "send_voice_outreach",
+    "initiate_outbound_call",
+    "validate_recipient_phone",
+    "check_voice_consent",
+    "VoiceServiceError",
+    "InvalidPhoneNumberError",
+    "VoiceConsentSuppressedError",
+    "VoiceConfigurationError",
+    "VoiceLiveCallingDisabledError",
 ]

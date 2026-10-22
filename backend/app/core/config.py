@@ -137,6 +137,10 @@ class Settings(BaseSettings):
     RETELL_WEBHOOK_SECRET: Optional[str] = Field(default=None, repr=False)
     RETELL_VERIFY_WEBHOOK_SIGNATURE: bool = Field(default=True)
     VOICE_FOLLOWUP_COOLDOWN_HOURS: int = Field(default=24)
+    # Fail-closed safety flags: Both must be explicitly True to allow real external voice calls
+    RETELL_ENABLED: bool = Field(default=False)
+    RETELL_ALLOW_LIVE_CALLS: bool = Field(default=False)
+    RETELL_TIMEOUT_SECONDS: float = Field(default=10.0)
 
     # Retell AI Voice settings (Inbound Assistant)
     RETELL_INBOUND_AGENT_ID: Optional[str] = Field(default=None)
@@ -152,6 +156,16 @@ class Settings(BaseSettings):
             and self.RETELL_API_KEY.strip()
             and self.RETELL_AGENT_ID
             and self.RETELL_AGENT_ID.strip()
+        )
+
+    @property
+    def is_retell_live_calling_allowed(self) -> bool:
+        """Safe fail-closed guard: Real phone calls require both RETELL_ENABLED=True and RETELL_ALLOW_LIVE_CALLS=True, plus valid credentials."""
+        return bool(
+            self.RETELL_ENABLED
+            and self.RETELL_ALLOW_LIVE_CALLS
+            and self.is_retell_configured
+            and self.RETELL_FROM_NUMBER
         )
 
     @property

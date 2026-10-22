@@ -196,7 +196,11 @@ def create_outreach(
         campaign_id=campaign.id,
         contact_id=contact.id,
         campaign_contact_id=campaign_contact.id,
-        recipient=contact.email if contact else None,
+        recipient=(
+            (contact.phone if contact and contact.phone else contact.email)
+            if data.channel in ("voice", "sms")
+            else (contact.email if contact else None)
+        ),
         channel=data.channel,
         status="draft",
         subject=data.subject.strip() if data.subject else None,
@@ -425,9 +429,17 @@ def send_outreach(
             outreach_id=outreach_id,
             raise_on_failure=raise_on_failure,
         )
+    elif outreach.channel == "voice":
+        from app.services.voice.service import send_voice_outreach
+        return send_voice_outreach(
+            db=db,
+            org_id=org_id,
+            outreach_id=outreach_id,
+            raise_on_failure=raise_on_failure,
+        )
     elif outreach.channel != "email":
         raise UnsupportedChannelError(
-            f"Cannot send outreach with channel '{outreach.channel}'. Only 'email' and 'sms' are supported."
+            f"Cannot send outreach with channel '{outreach.channel}'. Only 'email', 'sms', and 'voice' are supported."
         )
 
     # 4. Idempotency & duplicate send protection
