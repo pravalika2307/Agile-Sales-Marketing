@@ -67,9 +67,11 @@ export async function POST(req: NextRequest) {
     });
 
     // 3. Trigger n8n webhook for LLM regeneration if configured
-    if (process.env.N8N_MARKETING_REGENERATE_WEBHOOK_URL) {
+    const n8nRegenerateWebhookUrl =
+      process.env.N8N_WEBHOOK_URL_REGENERATE || process.env.N8N_MARKETING_REGENERATE_WEBHOOK_URL;
+    if (n8nRegenerateWebhookUrl) {
       try {
-        await fetch(process.env.N8N_MARKETING_REGENERATE_WEBHOOK_URL, {
+        await fetch(n8nRegenerateWebhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

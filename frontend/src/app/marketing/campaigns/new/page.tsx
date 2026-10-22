@@ -52,7 +52,7 @@ export default function NewMarketingCampaignPage() {
   const [platforms, setPlatforms] = React.useState<string[]>(["LINKEDIN"]);
   const [websiteUrl, setWebsiteUrl] = React.useState("");
   const [knowledgeFiles, setKnowledgeFiles] = React.useState<File[]>([]);
-  const [schedulingMode, setSchedulingMode] = React.useState<"AI_AUTO" | "MANUAL">("AI_AUTO");
+  const [schedulingMode, setSchedulingMode] = React.useState<"AI_AUTO" | "EXCEL_SYNC">("AI_AUTO");
   const [postsPerWeek, setPostsPerWeek] = React.useState<number>(3);
   const [scheduleFile, setScheduleFile] = React.useState<File | null>(null);
   const [trainingPeriodDays, setTrainingPeriodDays] = React.useState<number>(45);
@@ -285,7 +285,9 @@ export default function NewMarketingCampaignPage() {
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-slate-500">Cadence:</span>
                 <span className="font-semibold text-slate-800">
-                  {schedulingMode === "AI_AUTO" ? `${postsPerWeek} posts / week (AI Auto)` : "Manual Calendar"}
+                  {schedulingMode === "AI_AUTO"
+                    ? `${postsPerWeek} posts / week (AI Auto-Pilot)`
+                    : "Excel Schedule Sync"}
                 </span>
               </div>
               <div className="flex justify-between py-1">
@@ -549,11 +551,11 @@ export default function NewMarketingCampaignPage() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Card A: Manual Schedule */}
+                  {/* Card A: Sync with Existing Excel Schedule */}
                   <div
-                    onClick={() => setSchedulingMode("MANUAL")}
+                    onClick={() => setSchedulingMode("EXCEL_SYNC")}
                     className={`cursor-pointer rounded-xl border p-5 transition-all text-left flex flex-col justify-between ${
-                      schedulingMode === "MANUAL"
+                      schedulingMode === "EXCEL_SYNC"
                         ? "border-[#D7525A] bg-rose-50/30 ring-1 ring-[#D7525A]"
                         : "border-slate-200 hover:border-slate-300 bg-white"
                     }`}
@@ -565,21 +567,21 @@ export default function NewMarketingCampaignPage() {
                         </div>
                         <div
                           className={`w-5 h-5 rounded-full border flex items-center justify-center ${
-                            schedulingMode === "MANUAL"
+                            schedulingMode === "EXCEL_SYNC"
                               ? "bg-[#D7525A] border-[#D7525A] text-white"
                               : "border-slate-300"
                           }`}
                         >
-                          {schedulingMode === "MANUAL" && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                          {schedulingMode === "EXCEL_SYNC" && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                         </div>
                       </div>
-                      <h3 className="text-sm font-bold text-slate-900 mt-4">Card A: Upload Schedule (Manual)</h3>
+                      <h3 className="text-sm font-bold text-slate-900 mt-4">Card A: Sync with Existing Excel Schedule</h3>
                       <p className="text-xs text-slate-500 mt-1">
-                        Bring your own CSV or Excel editorial calendar with preset dates, topics, and pillar allocations.
+                        Preserves your existing n8n-to-Excel workflow and scheduling dates from your spreadsheet calendar.
                       </p>
                     </div>
 
-                    {schedulingMode === "MANUAL" && (
+                    {schedulingMode === "EXCEL_SYNC" && (
                       <div className="mt-4 pt-4 border-t border-rose-200/60" onClick={(e) => e.stopPropagation()}>
                         <div
                           {...getScheduleRootProps()}
@@ -763,7 +765,7 @@ export default function NewMarketingCampaignPage() {
                     <li>Campaign: <span className="font-medium text-slate-800">{name || "Untitled"}</span></li>
                     <li>Channels: <span className="font-medium text-slate-800">{platforms.join(", ")}</span></li>
                     <li>Uploaded Assets: <span className="font-medium text-slate-800">{knowledgeFiles.length} file(s){websiteUrl ? " + Scraped URL" : ""}</span></li>
-                    <li>Mode: <span className="font-medium text-slate-800">{schedulingMode === "AI_AUTO" ? `${postsPerWeek} posts/week` : "Custom Calendar File"}</span></li>
+                    <li>Mode: <span className="font-medium text-slate-800">{schedulingMode === "AI_AUTO" ? `${postsPerWeek} posts/week (AI Auto-Pilot)` : "Sync with Existing Excel Schedule"}</span></li>
                     <li>Training Window: <span className="font-medium text-slate-800">{trainingPeriodDays} Days (Supervised: {requireApproval ? "Yes" : "No"})</span></li>
                   </ul>
                 </div>

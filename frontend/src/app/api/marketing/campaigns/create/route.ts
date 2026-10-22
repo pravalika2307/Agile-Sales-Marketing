@@ -73,7 +73,9 @@ export async function POST(req: NextRequest) {
     }
 
     const schedulingMode =
-      schedulingModeRaw === "MANUAL" ? SchedulingMode.MANUAL : SchedulingMode.AI_AUTO;
+      schedulingModeRaw === "EXCEL_SYNC" || schedulingModeRaw === "MANUAL"
+        ? SchedulingMode.EXCEL_SYNC
+        : SchedulingMode.AI_AUTO;
     const postsPerWeek = parseInt(postsPerWeekRaw || "3", 10) || 3;
     const trainingPeriodDays = parseInt(trainingPeriodDaysRaw || "30", 10) || 30;
     const requireApprovalDuringTraining = requireApprovalRaw !== "false";
@@ -186,10 +188,12 @@ export async function POST(req: NextRequest) {
       });
     });
 
-    // Optional: trigger n8n generation webhook if configured
-    if (process.env.N8N_MARKETING_GENERATION_WEBHOOK_URL) {
+    // Trigger n8n generation webhook if configured
+    const n8nWebhookUrl =
+      process.env.N8N_WEBHOOK_URL_GENERATE || process.env.N8N_MARKETING_GENERATION_WEBHOOK_URL;
+    if (n8nWebhookUrl) {
       try {
-        await fetch(process.env.N8N_MARKETING_GENERATION_WEBHOOK_URL, {
+        await fetch(n8nWebhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -200,6 +204,9 @@ export async function POST(req: NextRequest) {
             platforms: campaign?.platform,
             trainingPeriodDays,
             schedulingMode,
+            extractedText: extractedFilesData.map((f) => f.extractedText).join("\n\n---\n\n"),
+            knowledgeFiles: extractedFilesData.map((f) => ({ fileName: f.fileName, fileType: f.fileType })),
+            websiteUrl,
           }),
         });
       } catch (webhookErr) {
