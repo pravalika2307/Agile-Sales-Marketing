@@ -72,8 +72,10 @@ export default function MarketingSocialMediaPage() {
       setError(null);
 
       const res = await fetchSocialMediaAnalytics();
-      if (res.success && res.data) {
+      if (res && res.success && res.data) {
         setData(res.data);
+      } else if (res && !res.success) {
+        setError("Failed to load social media analytics data.");
       }
     } catch (err: any) {
       console.error("Error loading social media analytics:", err);

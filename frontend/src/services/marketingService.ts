@@ -287,16 +287,24 @@ export interface SocialMediaAnalyticsResponse {
   };
 }
 
-export async function fetchSocialMediaAnalytics(): Promise<SocialMediaAnalyticsResponse> {
-  const res = await fetch("/api/marketing/social-media", {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to fetch social media analytics: ${res.statusText}`);
+export async function fetchSocialMediaAnalytics(): Promise<{
+  success: boolean;
+  data: SocialMediaAnalyticsResponse["data"] | null;
+}> {
+  try {
+    const response = await fetch("/api/marketing/social-media", {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error("Failed to fetch social media data");
+    const json = await response.json();
+    const data = json?.data ? json.data : json;
+    return { success: true, data };
+  } catch (error) {
+    console.error("Error fetching social media analytics:", error);
+    return { success: false, data: null };
   }
-  return res.json();
 }
 
 export async function triggerN8nSocialSync(): Promise<{
