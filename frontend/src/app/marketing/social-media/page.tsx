@@ -37,6 +37,7 @@ import {
 } from "@/components/social/social-icons";
 import {
   fetchSocialMediaAnalytics,
+  triggerN8nSocialSync,
   SocialMediaAnalyticsResponse,
   SocialMediaPostItem,
 } from "@/services/marketingService";
@@ -48,6 +49,11 @@ export default function MarketingSocialMediaPage() {
   const [data, setData] = React.useState<SocialMediaAnalyticsResponse["data"] | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
+  const [syncingN8n, setSyncingN8n] = React.useState(false);
+  const [syncNotice, setSyncNotice] = React.useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const [activeTab, setActiveTab] = React.useState<ActiveTab>("instagram");
@@ -77,6 +83,31 @@ export default function MarketingSocialMediaPage() {
       setRefreshing(false);
     }
   }, []);
+
+  const handleSyncN8n = async () => {
+    setSyncingN8n(true);
+    setSyncNotice(null);
+    try {
+      const res = await triggerN8nSocialSync();
+      setSyncNotice({
+        type: "success",
+        message:
+          res.message ||
+          "n8n workflow triggered! Pushing fresh Meta analytics into PostgreSQL...",
+      });
+      // Refresh local analytics slightly after trigger
+      setTimeout(() => {
+        loadAnalytics(true);
+      }, 1500);
+    } catch (err: any) {
+      setSyncNotice({
+        type: "error",
+        message: err?.message || "Failed to trigger n8n social sync workflow.",
+      });
+    } finally {
+      setSyncingN8n(false);
+    }
+  };
 
   React.useEffect(() => {
     loadAnalytics();
@@ -183,18 +214,67 @@ export default function MarketingSocialMediaPage() {
               <RefreshCw className={cn("w-3.5 h-3.5 mr-1.5", refreshing && "animate-spin")} />
               <span>{refreshing ? "Refreshing..." : "Refresh Live"}</span>
             </Button>
+
+            {/* Sync / Update Data button triggering n8n webhook */}
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSyncN8n}
+              disabled={syncingN8n || loading}
+              className="text-xs font-semibold bg-[#D7525A] hover:bg-[#c2434b] text-white shadow-2xs inline-flex items-center gap-1.5"
+            >
+              {syncingN8n ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Syncing via n8n...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Sync / Update Data</span>
+                </>
+              )}
+            </Button>
+
             <Link href="/marketing/content-calendar">
               <Button
-                variant="primary"
+                variant="outline"
                 size="sm"
-                className="text-xs font-semibold bg-[#D7525A] hover:bg-[#c2434b] text-white shadow-2xs"
+                className="text-xs font-semibold bg-white text-slate-700 hover:bg-slate-50 border-slate-200 shadow-2xs"
               >
-                <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                <Calendar className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
                 <span>Content Calendar</span>
               </Button>
             </Link>
           </div>
         </div>
+
+        {/* n8n Sync Notice Banner */}
+        {syncNotice && (
+          <div
+            className={cn(
+              "p-3.5 rounded-xl border text-xs flex items-center justify-between transition-all",
+              syncNotice.type === "success"
+                ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                : "bg-rose-50 text-rose-800 border-rose-200"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              {syncNotice.type === "success" ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <Activity className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span>{syncNotice.message}</span>
+            </div>
+            <button
+              onClick={() => setSyncNotice(null)}
+              className="text-[11px] underline font-semibold ml-4 cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* Error Banner */}
         {error && (

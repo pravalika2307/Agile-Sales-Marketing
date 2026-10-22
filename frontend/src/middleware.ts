@@ -14,6 +14,7 @@ const publicApiPrefixes = [
   "/api/auth/register",
   "/api/auth/refresh",
   "/api/marketing",
+  "/api/webhooks",
 ];
 
 /**

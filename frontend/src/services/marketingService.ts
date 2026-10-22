@@ -298,3 +298,18 @@ export async function fetchSocialMediaAnalytics(): Promise<SocialMediaAnalyticsR
   }
   return res.json();
 }
+
+export async function triggerN8nSocialSync(): Promise<{
+  success: boolean;
+  triggered: boolean;
+  message: string;
+}> {
+  const res = await fetch("/api/marketing/social-media/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to trigger n8n social sync: ${res.statusText}`);
+  }
+  return res.json();
+}
