@@ -47,3 +47,8 @@ pnpm-debug.log*
 *.swo
 .DS_Store
 Thumbs.db
+
+# Backups & Scratch
+*.dump
+meeting_transcript.txt
+

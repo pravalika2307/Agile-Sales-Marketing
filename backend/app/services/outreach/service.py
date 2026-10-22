@@ -417,9 +417,17 @@ def send_outreach(
         raise CampaignCompletedError("Cannot execute outreach for a completed campaign.")
 
     # 3. Channel verification
-    if outreach.channel != "email":
+    if outreach.channel == "sms":
+        from app.services.sms.service import send_sms_outreach
+        return send_sms_outreach(
+            db=db,
+            org_id=org_id,
+            outreach_id=outreach_id,
+            raise_on_failure=raise_on_failure,
+        )
+    elif outreach.channel != "email":
         raise UnsupportedChannelError(
-            f"Cannot send outreach with channel '{outreach.channel}'. Only 'email' is supported."
+            f"Cannot send outreach with channel '{outreach.channel}'. Only 'email' and 'sms' are supported."
         )
 
     # 4. Idempotency & duplicate send protection

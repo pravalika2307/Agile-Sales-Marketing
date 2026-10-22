@@ -126,4 +126,28 @@ async def get_current_organization(
     return org
 
 
+async def get_current_admin_user(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """Ensure the authenticated user has administrative privileges within their organization or platform."""
+    if current_user.role not in ("owner", "admin", "superadmin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrative privileges required to access this resource.",
+        )
+    return current_user
+
+
+async def get_current_platform_admin_user(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """Ensure the authenticated user is an authorized platform administrator."""
+    if current_user.role not in ("superadmin", "platform_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform administrator privileges required to review and approve channel upgrades.",
+        )
+    return current_user
+
+
 

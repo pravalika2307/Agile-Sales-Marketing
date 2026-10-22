@@ -53,7 +53,10 @@ import {
   Bookmark,
   Search,
   Check,
+  Smartphone,
+  ShieldCheck,
 } from "lucide-react";
+import { estimateSMSSegments } from "@/services/smsService";
 
 export interface WorkflowBuilderProps {
   campaignId: string;
@@ -72,6 +75,7 @@ const VARIABLE_TAGS = [
   { tag: "{contact.email}", label: "Email" },
   { tag: "{contact.company}", label: "Company" },
   { tag: "{contact.job_title}", label: "Job Title" },
+  { tag: "{contact.phone}", label: "Phone" },
   { tag: "{sender.name}", label: "Sender Name" },
   { tag: "{sender.company_name}", label: "Sender Company" },
   { tag: "{booking_link}", label: "Booking Link" },
@@ -126,10 +130,10 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
   const [previewContactId, setPreviewContactId] = React.useState<string>("");
   const [previewMode, setPreviewMode] = React.useState<"text" | "html">("text");
   const [campaignContacts, setCampaignContacts] = React.useState<
-    Array<{ id: string; name: string; email: string; companyName?: string | null }>
+    Array<{ id: string; name: string; email: string; phone?: string | null; companyName?: string | null }>
   >([]);
   const [allOrgContacts, setAllOrgContacts] = React.useState<
-    Array<{ id: string; name: string; email: string; companyName?: string | null }>
+    Array<{ id: string; name: string; email: string; phone?: string | null; companyName?: string | null }>
   >([]);
 
   // Load available contacts for live preview (prioritize campaign-enrolled contacts)
@@ -143,7 +147,7 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
           fetch("/api/contacts?limit=100", { cache: "no-store" }).catch(() => null),
         ]);
 
-        let enrolledList: Array<{ id: string; name: string; email: string; companyName?: string | null }> = [];
+        let enrolledList: Array<{ id: string; name: string; email: string; phone?: string | null; companyName?: string | null }> = [];
         if (campRes && campRes.ok) {
           const rawCamp = await campRes.json();
           enrolledList = (rawCamp || []).map((c: any) => {
@@ -152,24 +156,27 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
             const lastName = inner.last_name || c.last_name || "";
             const fullName = `${firstName} ${lastName}`.trim() || inner.name || c.contactName || inner.email || c.email || "Contact";
             const email = inner.email || c.contactEmail || c.email || "";
+            const phone = inner.phone || c.phone || null;
             const companyName = inner.company?.name || inner.company_name || c.companyName || c.company_name || null;
             return {
               id: c.contact_id || c.contactId || inner.id || c.id,
               name: fullName,
               email: email,
+              phone: phone,
               companyName: companyName,
             };
           });
           setCampaignContacts(enrolledList);
         }
 
-        let orgList: Array<{ id: string; name: string; email: string; companyName?: string | null }> = [];
+        let orgList: Array<{ id: string; name: string; email: string; phone?: string | null; companyName?: string | null }> = [];
         if (orgRes && orgRes.ok) {
           const rawOrg = await orgRes.json();
           orgList = (rawOrg || []).map((c: any) => ({
             id: c.id,
             name: `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.email,
             email: c.email,
+            phone: c.phone || null,
             companyName: c.company?.name || c.company_name || null,
           }));
           setAllOrgContacts(orgList);
@@ -393,7 +400,12 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
       defaultConfig = { agent_type: "outbound_sdr", phone_required: true };
     } else if (type === "sms") {
       title = "SMS Outreach";
-      defaultConfig = { provider_status: "unconfigured", can_execute: false };
+      defaultConfig = {
+        body: "Hi {contact.first_name}, this is {sender_name} from {sender_company}. Are you available for a brief 10-minute briefing next week? Let me know or book directly: {booking_link}",
+        delay_days: 0,
+        delay_hours: 0,
+        is_active: true,
+      };
     } else if (type === "condition") {
       title = "Outcome Branch";
       defaultConfig = { condition_type: "email_replied" };
@@ -491,8 +503,8 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
         is_valid: false,
         errors: [err instanceof Error ? err.message : "Validation failed"],
         warnings: [],
-        supported_step_types: ["email", "wait", "voice", "condition"],
-        unavailable_step_types: ["sms"],
+        supported_step_types: ["email", "wait", "voice", "sms", "condition"],
+        unavailable_step_types: [],
       });
     }
   };
@@ -689,6 +701,8 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
                             ? "bg-amber-500 text-white"
                             : node.type === "voice"
                             ? "bg-blue-600 text-white"
+                            : node.type === "sms"
+                            ? "bg-emerald-600 text-white"
                             : node.type === "condition"
                             ? "bg-purple-600 text-white"
                             : "bg-slate-300 text-slate-700"
@@ -698,14 +712,14 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
                         {node.type === "email" && <Mail className="w-4 h-4" />}
                         {node.type === "wait" && <Clock className="w-4 h-4" />}
                         {node.type === "voice" && <PhoneCall className="w-4 h-4" />}
-                        {node.type === "sms" && <MessageSquare className="w-4 h-4" />}
+                        {node.type === "sms" && <Smartphone className="w-4 h-4" />}
                         {node.type === "condition" && <GitBranch className="w-4 h-4" />}
                       </div>
 
                       <div>
                         <h4 className="text-xs font-bold text-header">{node.title}</h4>
                         <span className="text-[10px] text-slate-400 capitalize">
-                          {node.type === "voice" ? "Retell AI Voice SDR" : node.type} Step
+                          {node.type === "voice" ? "Retell AI Voice SDR" : node.type === "sms" ? "Twilio SMS" : node.type} Step
                         </span>
                       </div>
                     </div>
@@ -745,7 +759,11 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
                       <p className="text-blue-700 font-medium">Outbound SDR • Verified Agent</p>
                     )}
                     {node.type === "sms" && (
-                      <p className="text-amber-700 font-medium">Provider unconfigured (view only)</p>
+                      <p className="text-emerald-700 font-medium">
+                        {node.config.body
+                          ? `${estimateSMSSegments(node.config.body).characterCount} chars • ${estimateSMSSegments(node.config.body).segmentCount} seg`
+                          : "Twilio SMS (Safe Mode)"}
+                      </p>
                     )}
                     {node.type === "condition" && (
                       <p className="text-purple-700 font-medium">
@@ -784,6 +802,13 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
                             title="Add AI Voice Call"
                           >
                             <PhoneCall className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => handleAddStep(index, "sms")}
+                            className="p-1 hover:bg-slate-100 rounded text-emerald-600"
+                            title="Add SMS Message"
+                          >
+                            <Smartphone className="w-3 h-3" />
                           </button>
                           <button
                             onClick={() => handleAddStep(index, "condition")}
@@ -831,6 +856,15 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
             >
               <PhoneCall className="w-3 h-3 text-blue-600" />
               <span>Voice SDR</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleAddStep(workflow.nodes.length - 1, "sms")}
+              className="text-xs h-7 gap-1"
+            >
+              <Smartphone className="w-3 h-3 text-emerald-600" />
+              <span>SMS</span>
             </Button>
             <Button
               variant="outline"
@@ -1081,26 +1115,217 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
                 </div>
               )}
 
-              {/* 4. SMS STEP CONFIG (Honest Report) */}
-              {selectedNode.type === "sms" && (
-                <div className="space-y-4">
-                  <div className="rounded-lg bg-rose-50 p-3 border border-rose-200 text-[11px] text-rose-800 space-y-1">
-                    <p className="font-semibold flex items-center gap-1">
-                      <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                      SMS Gateway Not Configured
-                    </p>
-                    <p>
-                      No real SMS provider (Twilio or Amazon SNS) is currently provisioned in backend environment. This step cannot be executed until an SMS integration is connected.
-                    </p>
+              {/* 4. SMS STEP CONFIG */}
+              {selectedNode.type === "sms" && (() => {
+                const smsBody = selectedNode.config.body || "";
+                const seg = estimateSMSSegments(smsBody);
+
+                // Find active preview contact
+                const selectedContact =
+                  previewContactId === "__sample__" || !previewContactId
+                    ? null
+                    : campaignContacts.find((c) => c.id === previewContactId) ||
+                      allOrgContacts.find((c) => c.id === previewContactId) ||
+                      null;
+
+                const contactData = selectedContact
+                  ? {
+                      first_name: selectedContact.name.split(" ")[0] || "Prospect",
+                      last_name: selectedContact.name.split(" ").slice(1).join(" ") || "",
+                      email: selectedContact.email || "prospect@example.com",
+                      phone: selectedContact.phone || null,
+                      company: selectedContact.companyName || "Acme Corp",
+                    }
+                  : {
+                      first_name: "Alex",
+                      last_name: "Taylor",
+                      email: "alex.taylor@example.com",
+                      phone: "+1 (555) 234-5678",
+                      company: "Acme Corp",
+                    };
+
+                // Render preview text
+                const renderedSMS = smsBody
+                  .replace(/\{contact\.first_name\}/g, contactData.first_name)
+                  .replace(/\{contact\.last_name\}/g, contactData.last_name)
+                  .replace(/\{contact\.email\}/g, contactData.email)
+                  .replace(/\{contact\.phone\}/g, contactData.phone || "[No Phone]")
+                  .replace(/\{contact\.company\}/g, contactData.company)
+                  .replace(/\{contact\.job_title\}/g, "VP of Growth")
+                  .replace(/\{sender\.name\}/g, "Agile Sales Team")
+                  .replace(/\{sender_name\}/g, "Agile Sales Team")
+                  .replace(/\{sender\.company_name\}/g, "Agile Sales & Marketing")
+                  .replace(/\{sender_company\}/g, "Agile Sales & Marketing")
+                  .replace(/\{booking_link\}/g, "https://cal.com/agilereceivables/30min");
+
+                const renderedSeg = estimateSMSSegments(renderedSMS);
+                const unresolvedPlaceholders = Array.from(new Set(renderedSMS.match(/\{[^}]+\}/g) || []));
+
+                return (
+                  <div className="space-y-4">
+                    {/* Safe Simulation Mode Banner */}
+                    <div className="rounded-lg bg-emerald-50 p-3 border border-emerald-200 text-[11px] text-emerald-900 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold flex items-center gap-1.5 text-emerald-800">
+                          <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+                          Twilio SMS Step
+                        </p>
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                          Safe Simulation Mode
+                        </span>
+                      </div>
+                      <p className="text-emerald-700 leading-relaxed text-[11px]">
+                        Fail-closed safety active (<code>TWILIO_ALLOW_LIVE_SENDING=false</code>). Campaign runs generate realistic mock dispatch IDs (<code>mock-sms-...</code>). Zero live SMS credits are consumed.
+                      </p>
+                    </div>
+
+                    {/* SMS Body Editor */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-semibold text-slate-700">
+                          SMS Message Body *
+                        </label>
+                        <span
+                          className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                            seg.characterCount > 1600
+                              ? "bg-rose-100 text-rose-700 font-semibold"
+                              : seg.segmentCount > 1
+                              ? "bg-amber-100 text-amber-700 font-medium"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {seg.characterCount} chars • {seg.segmentCount} {seg.segmentCount === 1 ? "segment" : "segments"} ({seg.encoding})
+                        </span>
+                      </div>
+                      <textarea
+                        rows={4}
+                        className="w-full text-xs font-mono p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
+                        placeholder="Type your SMS message template..."
+                        value={smsBody}
+                        onChange={(e) => updateSelectedNodeConfig("body", e.target.value)}
+                      />
+                      <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
+                        <span>{seg.remainingInSegment} chars left in segment {seg.segmentCount || 1}</span>
+                        <span>Max per segment: {seg.maxPerSegment}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        <span className="text-[10px] text-slate-400 self-center mr-1">Variables:</span>
+                        {VARIABLE_TAGS.map((v) => (
+                          <button
+                            key={v.tag}
+                            type="button"
+                            onClick={() => insertVariable("body", v.tag)}
+                            className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] rounded border border-slate-200 font-mono"
+                          >
+                            {v.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Step Delays */}
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <Input
+                        label="Delay (Days)"
+                        type="number"
+                        min={0}
+                        value={String(selectedNode.config.delay_days ?? 0)}
+                        onChange={(e) => updateSelectedNodeConfig("delay_days", parseInt(e.target.value) || 0)}
+                      />
+                      <Input
+                        label="Delay (Hours)"
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={String(selectedNode.config.delay_hours ?? 0)}
+                        onChange={(e) => updateSelectedNodeConfig("delay_hours", parseInt(e.target.value) || 0)}
+                      />
+                    </div>
+
+                    {/* Recipient Phone Normalization & Consent Guard */}
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-200 space-y-1">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-semibold text-slate-700 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          E.164 & Consent Protection
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-500">Auto-Filtered</span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-normal">
+                        Phone numbers are normalized to E.164 international format (+1...). Contacts lacking phone numbers or with opt-out keywords (<code>STOP</code>, <code>UNSUBSCRIBE</code>) are safely skipped during campaign dispatch.
+                      </p>
+                    </div>
+
+                    {/* Live Mobile SMS Device Preview */}
+                    <div className="rounded-xl border border-slate-200 bg-slate-100/70 p-3 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1 text-[11px] font-semibold text-slate-700">
+                          <Eye className="w-3 h-3 text-slate-500" />
+                          <span>Live Mobile Preview</span>
+                        </div>
+                        <select
+                          className="text-[10px] bg-white border border-slate-200 rounded px-1.5 py-0.5 text-slate-600 focus:outline-none max-w-[150px] truncate"
+                          value={previewContactId}
+                          onChange={(e) => setPreviewContactId(e.target.value)}
+                        >
+                          <option value="__sample__">Sample Contact</option>
+                          {campaignContacts.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name} {c.phone ? `(${c.phone})` : "(No phone)"}
+                            </option>
+                          ))}
+                          {allOrgContacts
+                            .filter((oc) => !campaignContacts.some((cc) => cc.id === oc.id))
+                            .map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name} {c.phone ? `(${c.phone})` : "(No phone)"}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      {/* Contact Phone Status Pill */}
+                      <div className="flex items-center gap-1.5 text-[10px]">
+                        {contactData.phone ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            <CheckCircle2 className="w-2.5 h-2.5" />
+                            Recipient: {contactData.phone}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                            <AlertTriangle className="w-2.5 h-2.5" />
+                            No phone on record (Step skipped)
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Unresolved Placeholders Warning */}
+                      {unresolvedPlaceholders.length > 0 && (
+                        <div className="text-[10px] text-amber-800 bg-amber-50 p-1.5 rounded border border-amber-200 flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3 shrink-0 text-amber-600" />
+                          <span>Unresolved: {unresolvedPlaceholders.join(", ")}</span>
+                        </div>
+                      )}
+
+                      {/* Phone SMS Bubble Frame */}
+                      <div className="bg-slate-200/80 rounded-2xl p-2.5 space-y-1.5">
+                        <div className="text-center text-[9px] font-medium text-slate-500 uppercase tracking-wider">
+                          SMS Message • Today 10:00 AM
+                        </div>
+                        <div className="flex justify-start">
+                          <div className="max-w-[90%] bg-emerald-600 text-white text-[11px] leading-relaxed rounded-2xl rounded-tl-xs px-3 py-2 shadow-xs whitespace-pre-wrap break-words font-sans">
+                            {renderedSMS || <span className="opacity-60 italic">No SMS body template defined</span>}
+                          </div>
+                        </div>
+                        <div className="text-right text-[9px] text-slate-400 pr-1">
+                          {renderedSeg.characterCount} chars • {renderedSeg.segmentCount} {renderedSeg.segmentCount === 1 ? "seg" : "segs"} ({renderedSeg.encoding})
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <textarea
-                    rows={4}
-                    disabled
-                    className="w-full text-xs font-mono p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-400"
-                    value="[SMS execution disabled — integration required]"
-                  />
-                </div>
-              )}
+                );
+              })()}
 
               {/* 5. CONDITION BRANCH CONFIG */}
               {selectedNode.type === "condition" && (

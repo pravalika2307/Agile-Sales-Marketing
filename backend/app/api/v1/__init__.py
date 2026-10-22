@@ -15,15 +15,20 @@ from .lead_research import router as lead_research_router
 from .routing_rules import router as routing_rules_router
 from .outreach import router as outreach_router
 from .pipeline import router as pipeline_router
+from .sms import router as sms_router
 from .tracking import router as tracking_router, tracking_webhook_router
 from .voice_webhook import router as voice_webhook_router
 
 from .analytics import router as analytics_router
 from .email_templates import router as email_templates_router
+from .entitlements import router as entitlements_router
+from .inbound_emails import router as inbound_emails_router
 
 api_router = APIRouter()
 api_router.include_router(analytics_router)
 api_router.include_router(email_templates_router)
+api_router.include_router(entitlements_router)
+api_router.include_router(inbound_emails_router)
 api_router.include_router(auth_router)
 api_router.include_router(campaign_execution_router)
 api_router.include_router(campaign_steps_router)
@@ -34,6 +39,7 @@ api_router.include_router(contact_lists_router)
 api_router.include_router(pipeline_router)
 api_router.include_router(deals_router)
 api_router.include_router(outreach_router)
+api_router.include_router(sms_router)
 api_router.include_router(tracking_router)
 api_router.include_router(tracking_webhook_router)
 api_router.include_router(voice_webhook_router)

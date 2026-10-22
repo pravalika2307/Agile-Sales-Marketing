@@ -163,6 +163,41 @@ class Settings(BaseSettings):
             and (self.RETELL_INBOUND_AGENT_ID or self.RETELL_INBOUND_CF_AGENT_ID)
         )
 
+    # Twilio SMS Integration Settings
+    # Credentials are marked with repr=False so they are never exposed in logging or repr strings
+    TWILIO_ACCOUNT_SID: Optional[str] = Field(default=None, repr=False)
+    TWILIO_AUTH_TOKEN: Optional[str] = Field(default=None, repr=False)
+    TWILIO_FROM_NUMBER: Optional[str] = Field(default=None)
+    # Fail-closed safety flags: Both must be explicitly True to allow real external sending
+    TWILIO_ENABLED: bool = Field(default=False)
+    TWILIO_ALLOW_LIVE_SENDING: bool = Field(default=False)
+    TWILIO_API_BASE_URL: str = Field(default="https://api.twilio.com")
+    TWILIO_TIMEOUT_SECONDS: float = Field(default=10.0)
+
+    @property
+    def is_twilio_configured(self) -> bool:
+        """Check if Twilio account credentials and sender number are configured."""
+        return bool(
+            self.TWILIO_ACCOUNT_SID
+            and self.TWILIO_ACCOUNT_SID.strip()
+            and self.TWILIO_AUTH_TOKEN
+            and self.TWILIO_AUTH_TOKEN.strip()
+            and self.TWILIO_FROM_NUMBER
+            and self.TWILIO_FROM_NUMBER.strip()
+        )
+
+    @property
+    def is_twilio_live_sending_allowed(self) -> bool:
+        """
+        Fail-closed guard for live Twilio sending.
+        Requires configuration, TWILIO_ENABLED=True, and TWILIO_ALLOW_LIVE_SENDING=True.
+        """
+        return bool(
+            self.is_twilio_configured
+            and self.TWILIO_ENABLED
+            and self.TWILIO_ALLOW_LIVE_SENDING
+        )
+
     # Campaign execution scheduler settings
     SCHEDULER_ENABLED: bool = Field(default=False)
     SCHEDULER_INTERVAL_SECONDS: int = Field(default=60)
@@ -202,6 +237,122 @@ class Settings(BaseSettings):
             "0d85dc9f-1520-4bcb-8af4-8aad025255cb": "https://cal.com/agilereceivables/30min",
         }
     )
+
+    # Microsoft Graph Integration (Inbound Email Ingestion for Support Mailbox)
+    MICROSOFT_GRAPH_TENANT_ID: Optional[str] = Field(
+        default=None,
+        description="Microsoft Entra Directory (Tenant) ID",
+    )
+    MICROSOFT_GRAPH_CLIENT_ID: Optional[str] = Field(
+        default=None,
+        description="Microsoft Entra Application (Client) ID",
+    )
+    MICROSOFT_GRAPH_CLIENT_SECRET: Optional[str] = Field(
+        default=None,
+        repr=False,
+        description="Microsoft Entra Client Secret (never exposed in logs/repr)",
+    )
+    MICROSOFT_GRAPH_SUPPORT_MAILBOX: str = Field(
+        default="support@agilereceivables.com",
+        description="Specifically approved support mailbox address for inbound ingestion.",
+    )
+
+    @field_validator("MICROSOFT_GRAPH_SUPPORT_MAILBOX")
+    @classmethod
+    def validate_support_mailbox(cls, v: Optional[str]) -> str:
+        """
+        Enforces that only the explicitly approved support mailbox can be configured.
+        Rejects empty values, arbitrary mailboxes, and lookalike targets.
+        """
+        if not v or not v.strip():
+            raise ValueError("MICROSOFT_GRAPH_SUPPORT_MAILBOX must be configured and cannot be empty.")
+        normalized = v.strip().lower()
+        if normalized != "support@agilereceivables.com":
+            raise ValueError(
+                f"Unauthorized mailbox '{normalized}'. Inbound email integration is strictly restricted "
+                f"to 'support@agilereceivables.com'."
+            )
+        return normalized
+    MICROSOFT_GRAPH_ENABLED: bool = Field(
+        default=False,
+        description="Fail-closed guard. Live mailbox sync is disabled by default.",
+    )
+    MICROSOFT_GRAPH_AUTH_FLOW: str = Field(
+        default="client_credentials",
+        description="Authentication flow: 'client_credentials' (Application) or 'delegated'.",
+    )
+    MICROSOFT_GRAPH_DELEGATED_ACCESS_TOKEN: Optional[str] = Field(
+        default=None,
+        repr=False,
+        description="Optional pre-acquired delegated access token.",
+    )
+    MICROSOFT_GRAPH_DELEGATED_REFRESH_TOKEN: Optional[str] = Field(
+        default=None,
+        repr=False,
+        description="Optional delegated refresh token for user-delegated renewal.",
+    )
+    MICROSOFT_GRAPH_BASE_URL: str = Field(
+        default="https://graph.microsoft.com/v1.0",
+        description="Microsoft Graph API base URL.",
+    )
+    MICROSOFT_GRAPH_TIMEOUT_SECONDS: float = Field(
+        default=15.0,
+        description="HTTP client timeout for Microsoft Graph requests.",
+    )
+    MICROSOFT_GRAPH_MAX_MESSAGES_PER_PAGE: int = Field(
+        default=50,
+        description="Maximum messages per page returned by Microsoft Graph.",
+    )
+    # Automatic background synchronization settings
+    MICROSOFT_GRAPH_AUTO_SYNC_ENABLED: bool = Field(
+        default=False,
+        description="Fail-closed guard. Automated background sync loop is disabled by default.",
+    )
+    MICROSOFT_GRAPH_SYNC_INTERVAL_MINUTES: int = Field(
+        default=10,
+        description="Interval in minutes between automatic incremental mailbox sync ticks.",
+    )
+    MICROSOFT_GRAPH_SYNC_LOCK_TIMEOUT_SECONDS: int = Field(
+        default=900,
+        description="Concurrency lock timeout in seconds to release stale sync locks (default 15m).",
+    )
+    MICROSOFT_GRAPH_PRIMARY_ORG_ID: Optional[str] = Field(
+        default=None,
+        description="Optional explicit primary organization UUID for automated support mailbox sync.",
+    )
+
+    @property
+    def is_graph_configured(self) -> bool:
+        """Check if Microsoft Graph credentials are fully configured for the chosen flow."""
+        if self.MICROSOFT_GRAPH_AUTH_FLOW == "delegated":
+            return bool(
+                self.MICROSOFT_GRAPH_DELEGATED_ACCESS_TOKEN
+                or (self.MICROSOFT_GRAPH_CLIENT_ID and self.MICROSOFT_GRAPH_DELEGATED_REFRESH_TOKEN)
+            )
+        return bool(
+            self.MICROSOFT_GRAPH_TENANT_ID
+            and self.MICROSOFT_GRAPH_TENANT_ID.strip()
+            and self.MICROSOFT_GRAPH_CLIENT_ID
+            and self.MICROSOFT_GRAPH_CLIENT_ID.strip()
+            and self.MICROSOFT_GRAPH_CLIENT_SECRET
+            and self.MICROSOFT_GRAPH_CLIENT_SECRET.strip()
+        )
+
+    @property
+    def is_graph_live_sync_allowed(self) -> bool:
+        """
+        Fail-closed guard for Microsoft Graph live synchronization.
+        Requires configuration AND explicit MICROSOFT_GRAPH_ENABLED=True.
+        """
+        return bool(self.is_graph_configured and self.MICROSOFT_GRAPH_ENABLED)
+
+    @property
+    def is_graph_auto_sync_allowed(self) -> bool:
+        """
+        Fail-closed guard for automatic background synchronization.
+        Requires live sync to be permitted AND MICROSOFT_GRAPH_AUTO_SYNC_ENABLED=True.
+        """
+        return bool(self.is_graph_live_sync_allowed and self.MICROSOFT_GRAPH_AUTO_SYNC_ENABLED)
 
 
 settings = Settings()

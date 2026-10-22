@@ -264,12 +264,12 @@ async def test_send_rejected_for_non_email_channel(test_db_session):
         oid = uuid.UUID(setup["outreach_id"])
 
         db_outreach = test_db_session.query(Outreach).filter(Outreach.id == oid).first()
-        db_outreach.channel = "sms"
+        db_outreach.channel = "linkedin"
         test_db_session.commit()
 
         resp = await client.post(f"/api/v1/outreach/{str(oid)}/send", headers=headers)
         assert resp.status_code == 400
-        assert "Only 'email' is supported" in resp.json()["detail"]
+        assert "Only 'email' and 'sms' are supported" in resp.json()["detail"]
 
 
 # ── 4. Idempotency & Duplicate Send Protection ────────────────────────────────

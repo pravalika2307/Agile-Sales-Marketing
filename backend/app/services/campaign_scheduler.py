@@ -5,6 +5,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -26,6 +27,7 @@ from app.services.campaign_steps.template_renderer import (
     find_unresolved_placeholders,
     render_template,
 )
+from app.services.organization_config import get_organization_booking_url
 from app.services.outreach.base import EmailProvider
 from app.services.outreach.service import create_outreach, send_outreach
 
@@ -133,6 +135,7 @@ class CampaignSchedulerService:
             return result
 
         for camp in campaigns:
+            org_booking_url = get_organization_booking_url(self.db, camp.organization_id)
             # 2. Get active campaign steps ordered by step_number
             active_steps = (
                 self.db.query(CampaignStep)
@@ -144,6 +147,30 @@ class CampaignSchedulerService:
                 .order_by(CampaignStep.step_number.asc())
                 .all()
             )
+            if not active_steps and camp.workflow_config and isinstance(camp.workflow_config, dict):
+                wf_nodes = camp.workflow_config.get("nodes", [])
+                comm_nodes = [
+                    n for n in wf_nodes
+                    if isinstance(n, dict) and n.get("type") in ("email", "sms")
+                ]
+                synth_steps = []
+                for s_num, n in enumerate(comm_nodes, start=1):
+                    c = n.get("config", {}) or {}
+                    stype = n.get("type", "email")
+                    synth_steps.append(
+                        SimpleNamespace(
+                            id=n.get("id"),
+                            step_number=s_num,
+                            step_type=stype,
+                            subject_template=c.get("subject") or c.get("subject_template"),
+                            body_template=c.get("body") or c.get("body_template"),
+                            delay_days=int(c.get("delay_days", 0) or 0),
+                            delay_hours=int(c.get("delay_hours", 0) or 0),
+                            is_active=bool(c.get("is_active", True)),
+                        )
+                    )
+                active_steps = [s for s in synth_steps if s.is_active]
+
             if not active_steps:
                 continue
 
@@ -305,10 +332,15 @@ class CampaignSchedulerService:
                             .first()
                             if contact.company_id else None
                         )
-                        rendered_subj = render_template(step_1.subject_template, contact=contact, company=company, sender_name=sender_name)
-                        rendered_body = render_template(step_1.body_template, contact=contact, company=company, sender_name=sender_name)
+                        step1_channel = getattr(step_1, "step_type", "email") or "email"
+                        rendered_subj = (
+                            render_template(step_1.subject_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                            if step_1.subject_template
+                            else (None if step1_channel == "sms" else "")
+                        )
+                        rendered_body = render_template(step_1.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url) if step_1.body_template else ""
 
-                        unresolved = find_unresolved_placeholders(rendered_subj) + find_unresolved_placeholders(rendered_body)
+                        unresolved = (find_unresolved_placeholders(rendered_subj) if rendered_subj else []) + (find_unresolved_placeholders(rendered_body) if rendered_body else [])
                         if unresolved:
                             result.error_count += 1
                             result.details.append({
@@ -323,7 +355,7 @@ class CampaignSchedulerService:
                                 campaign_id=camp.id,
                                 contact_id=cc.contact_id,
                                 campaign_contact_id=cc.id,
-                                channel="email",
+                                channel=step1_channel,
                                 subject=rendered_subj,
                                 body=rendered_body,
                                 scheduled_at=None,
@@ -428,10 +460,15 @@ class CampaignSchedulerService:
                             .first()
                             if contact.company_id else None
                         )
-                        rendered_subj = render_template(next_step.subject_template, contact=contact, company=company, sender_name=sender_name)
-                        rendered_body = render_template(next_step.body_template, contact=contact, company=company, sender_name=sender_name)
+                        next_channel = getattr(next_step, "step_type", "email") or "email"
+                        rendered_subj = (
+                            render_template(next_step.subject_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                            if next_step.subject_template
+                            else (None if next_channel == "sms" else "")
+                        )
+                        rendered_body = render_template(next_step.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url) if next_step.body_template else ""
 
-                        unresolved = find_unresolved_placeholders(rendered_subj) + find_unresolved_placeholders(rendered_body)
+                        unresolved = (find_unresolved_placeholders(rendered_subj) if rendered_subj else []) + (find_unresolved_placeholders(rendered_body) if rendered_body else [])
                         if unresolved:
                             result.error_count += 1
                             result.details.append({
@@ -446,7 +483,7 @@ class CampaignSchedulerService:
                                 campaign_id=camp.id,
                                 contact_id=cc.contact_id,
                                 campaign_contact_id=cc.id,
-                                channel="email",
+                                channel=next_channel,
                                 subject=rendered_subj,
                                 body=rendered_body,
                                 scheduled_at=None,

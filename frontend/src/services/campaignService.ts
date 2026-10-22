@@ -151,6 +151,7 @@ export interface CampaignCreatePayload {
   name: string;
   type: CampaignType;
   description?: string | null;
+  first_step_channel?: "email" | "sms" | "voice";
   scheduleSettings?: Record<string, unknown> | null;
   workflow_config?: WorkflowConfig | null;
 }
@@ -448,6 +449,7 @@ export async function createCampaign(payload: CampaignCreatePayload): Promise<Ca
       name: payload.name.trim(),
       type: payload.type,
       description: payload.description?.trim() || null,
+      first_step_channel: payload.first_step_channel || "email",
       schedule_settings: payload.scheduleSettings || null,
       workflow_config: payload.workflow_config || null,
     }),

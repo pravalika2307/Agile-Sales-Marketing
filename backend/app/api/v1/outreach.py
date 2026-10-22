@@ -37,6 +37,11 @@ from app.services.outreach.service import (
     UnresolvedTemplatePlaceholderError,
     UnsupportedChannelError,
 )
+from app.services.sms.service import (
+    SMSConsentSuppressedError,
+    SMSDeliveryError,
+    SMSServiceError,
+)
 from app.services.organization_config import MissingBookingUrlError
 
 router = APIRouter(prefix="/outreach", tags=["Outreach"])
@@ -265,9 +270,11 @@ async def send_outreach(
         UnresolvedTemplatePlaceholderError,
         SuppressedRecipientError,
         MissingBookingUrlError,
+        SMSServiceError,
+        SMSConsentSuppressedError,
     ) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except ProviderDeliveryError as exc:
+    except (ProviderDeliveryError, SMSDeliveryError) as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
     return _serialize_outreach(outreach)
 
@@ -309,9 +316,11 @@ async def retry_outreach_endpoint(
         UnresolvedTemplatePlaceholderError,
         SuppressedRecipientError,
         MissingBookingUrlError,
+        SMSServiceError,
+        SMSConsentSuppressedError,
     ) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except ProviderDeliveryError as exc:
+    except (ProviderDeliveryError, SMSDeliveryError) as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
     return _serialize_outreach(outreach)
 

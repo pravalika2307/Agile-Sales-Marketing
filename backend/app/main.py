@@ -22,6 +22,8 @@ logger = logging.getLogger("agile_sales_marketing")
 async def lifespan(app: FastAPI):
     """Application lifespan manager starting the background scheduler loop when enabled."""
     scheduler_task = None
+    graph_sync_task = None
+
     if settings.SCHEDULER_ENABLED:
         logger.info("SCHEDULER_ENABLED is True. Starting background campaign scheduler loop...")
         from app.core.database import SessionLocal
@@ -47,6 +49,13 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Campaign scheduler is disabled by default (settings.SCHEDULER_ENABLED is False).")
 
+    if settings.is_graph_auto_sync_allowed:
+        logger.info("Microsoft Graph auto-sync is enabled. Starting background mailbox sync loop...")
+        from app.services.graph.scheduler import run_graph_auto_sync_loop
+        graph_sync_task = asyncio.create_task(run_graph_auto_sync_loop())
+    else:
+        logger.info("Microsoft Graph auto-sync is disabled by safety guards (is_graph_auto_sync_allowed is False).")
+
     yield
 
     if scheduler_task:
@@ -54,6 +63,14 @@ async def lifespan(app: FastAPI):
         scheduler_task.cancel()
         try:
             await scheduler_task
+        except asyncio.CancelledError:
+            pass
+
+    if graph_sync_task:
+        logger.info("Shutting down background Microsoft Graph auto-sync loop...")
+        graph_sync_task.cancel()
+        try:
+            await graph_sync_task
         except asyncio.CancelledError:
             pass
 
@@ -82,6 +99,7 @@ app.add_middleware(
         "X-Total-Count",
         "x-retell-signature",
         "X-Webhook-Secret",
+        "X-Twilio-Signature",
     ],
     expose_headers=["X-Total-Count"],
 )

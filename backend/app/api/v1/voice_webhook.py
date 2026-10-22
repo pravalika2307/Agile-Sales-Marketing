@@ -27,16 +27,31 @@ from fastapi import (
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_organization, get_current_user
+from app.api.deps import get_current_active_user, get_current_organization, get_current_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.call_record import CallRecord
 from app.models.lead import Lead
 from app.models.tenant import Organization, User
 from app.schemas.call_record import CallRecordResponse, RetellWebhookResponse
+from app.schemas.voice import (
+    VoiceAgentDetailResponse,
+    VoiceAgentsResponse,
+    VoiceAgentSummaryResponse,
+    VoiceStatusResponse,
+)
 from app.services.outreach.voice_followup import (
     UnresolvedOrganizationError,
     VoiceFollowUpService,
+)
+from app.services.voice.retell_client import (
+    RetellAuthenticationError,
+    RetellClient,
+    RetellError,
+    RetellNotFoundError,
+    RetellRateLimitError,
+    RetellTimeoutError,
+    get_retell_client,
 )
 
 
@@ -237,3 +252,246 @@ def get_call_record(
         )
 
     return record
+
+
+# ── Status and Agent Discovery Endpoints ─────────────────────────────────────
+
+@router.get(
+    "/status",
+    response_model=VoiceStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Retell AI voice integration connection status",
+    description="Returns live connection health, discovered agent count, configured agent IDs, and caller ID without exposing credentials.",
+)
+def get_voice_status(
+    current_user: User = Depends(get_current_active_user),
+    org: Organization = Depends(get_current_organization),
+    client: RetellClient = Depends(get_retell_client),
+) -> VoiceStatusResponse:
+    """Check Retell AI connectivity and configuration status for the authenticated organization."""
+    status_result = client.check_connection()
+    return VoiceStatusResponse(
+        configured=status_result.configured,
+        connected=status_result.connected,
+        provider=status_result.provider,
+        base_url=status_result.base_url,
+        outbound_agent_id=status_result.configured_outbound_agent_id,
+        inbound_agent_id=status_result.configured_inbound_agent_id,
+        outbound_from_number=status_result.caller_id,
+        outbound_agent_valid=status_result.outbound_agent_valid,
+        inbound_agent_valid=status_result.inbound_agent_valid,
+        agent_count=status_result.agent_count,
+        error=status_result.error,
+        message=status_result.message,
+    )
+
+
+@router.get(
+    "/agents",
+    response_model=VoiceAgentsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List available Retell voice agents",
+    description="Discovers active voice agents available in the configured Retell account.",
+)
+def list_voice_agents(
+    agent_id: Optional[str] = Query(None, description="Optional specific agent ID to retrieve"),
+    current_user: User = Depends(get_current_active_user),
+    org: Organization = Depends(get_current_organization),
+    client: RetellClient = Depends(get_retell_client),
+) -> VoiceAgentsResponse:
+    """Retrieve available Retell voice agents for workflow configuration."""
+    outbound_sdr_id = getattr(settings, "RETELL_AGENT_ID", None)
+    inbound_id = getattr(settings, "RETELL_INBOUND_AGENT_ID", None)
+
+    if not client.is_configured:
+        return VoiceAgentsResponse(
+            configured=False,
+            connected=False,
+            count=0,
+            items=[],
+            configured_outbound_agent_id=outbound_sdr_id,
+            configured_inbound_agent_id=inbound_id,
+            error="RETELL_API_KEY is not configured",
+            message="Retell AI voice provider is unconfigured. Set RETELL_API_KEY to enable.",
+        )
+
+    # If specific agent_id requested
+    if agent_id:
+        try:
+            detail = client.get_agent(agent_id)
+            item = VoiceAgentSummaryResponse(
+                agent_id=detail.agent_id,
+                agent_name=detail.agent_name,
+                channel=detail.channel,
+                voice_id=detail.voice_id,
+                response_engine_type=detail.response_engine.get("type") if isinstance(detail.response_engine, dict) else None,
+                llm_id=detail.response_engine.get("llm_id") if isinstance(detail.response_engine, dict) else None,
+                user_modified_timestamp=detail.last_modification_timestamp,
+                is_configured_sdr=bool(outbound_sdr_id and detail.agent_id == outbound_sdr_id),
+                is_configured_inbound=bool(inbound_id and detail.agent_id == inbound_id),
+            )
+            return VoiceAgentsResponse(
+                configured=True,
+                connected=True,
+                count=1,
+                items=[item],
+                configured_outbound_agent_id=outbound_sdr_id,
+                configured_inbound_agent_id=inbound_id,
+                message=f"Retrieved agent '{detail.agent_name}'.",
+            )
+        except RetellNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Retell agent '{agent_id}' not found.",
+            )
+        except RetellAuthenticationError:
+            return VoiceAgentsResponse(
+                configured=True,
+                connected=False,
+                count=0,
+                items=[],
+                configured_outbound_agent_id=outbound_sdr_id,
+                configured_inbound_agent_id=inbound_id,
+                error="Authentication failed",
+                message="Retell authentication rejected. Check RETELL_API_KEY.",
+            )
+        except RetellError as exc:
+            return VoiceAgentsResponse(
+                configured=True,
+                connected=False,
+                count=0,
+                items=[],
+                configured_outbound_agent_id=outbound_sdr_id,
+                configured_inbound_agent_id=inbound_id,
+                error="Provider error",
+                message=f"Failed to retrieve agent: {exc}",
+            )
+
+    # General list
+    try:
+        summaries = client.list_agents(limit=100)
+        items = [
+            VoiceAgentSummaryResponse(
+                agent_id=s.agent_id,
+                agent_name=s.agent_name,
+                channel=s.channel,
+                voice_id=s.voice_id,
+                response_engine_type=s.response_engine_type,
+                llm_id=s.llm_id,
+                user_modified_timestamp=s.user_modified_timestamp,
+                is_configured_sdr=bool(outbound_sdr_id and s.agent_id == outbound_sdr_id),
+                is_configured_inbound=bool(inbound_id and s.agent_id == inbound_id),
+            )
+            for s in summaries
+        ]
+        return VoiceAgentsResponse(
+            configured=True,
+            connected=True,
+            count=len(items),
+            items=items,
+            configured_outbound_agent_id=outbound_sdr_id,
+            configured_inbound_agent_id=inbound_id,
+            message=f"Discovered {len(items)} Retell voice agent(s).",
+        )
+    except RetellAuthenticationError:
+        return VoiceAgentsResponse(
+            configured=True,
+            connected=False,
+            count=0,
+            items=[],
+            configured_outbound_agent_id=outbound_sdr_id,
+            configured_inbound_agent_id=inbound_id,
+            error="Authentication failed",
+            message="Retell authentication rejected. Check that RETELL_API_KEY is valid.",
+        )
+    except RetellRateLimitError:
+        return VoiceAgentsResponse(
+            configured=True,
+            connected=False,
+            count=0,
+            items=[],
+            configured_outbound_agent_id=outbound_sdr_id,
+            configured_inbound_agent_id=inbound_id,
+            error="Rate limited",
+            message="Retell API rate limit reached. Please retry later.",
+        )
+    except RetellTimeoutError:
+        return VoiceAgentsResponse(
+            configured=True,
+            connected=False,
+            count=0,
+            items=[],
+            configured_outbound_agent_id=outbound_sdr_id,
+            configured_inbound_agent_id=inbound_id,
+            error="Timeout",
+            message="Retell connection timed out.",
+        )
+    except RetellError as exc:
+        return VoiceAgentsResponse(
+            configured=True,
+            connected=False,
+            count=0,
+            items=[],
+            configured_outbound_agent_id=outbound_sdr_id,
+            configured_inbound_agent_id=inbound_id,
+            error="Provider error",
+            message=f"Retell API communication error occurred: {exc}",
+        )
+
+
+@router.get(
+    "/agents/{agent_id}",
+    response_model=VoiceAgentDetailResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get single Retell voice agent detail",
+    description="Retrieves full configuration details of a specific Retell agent.",
+)
+def get_voice_agent_detail(
+    agent_id: str,
+    current_user: User = Depends(get_current_active_user),
+    org: Organization = Depends(get_current_organization),
+    client: RetellClient = Depends(get_retell_client),
+) -> VoiceAgentDetailResponse:
+    """Retrieve full configuration of an individual Retell voice agent."""
+    outbound_sdr_id = getattr(settings, "RETELL_AGENT_ID", None)
+    inbound_id = getattr(settings, "RETELL_INBOUND_AGENT_ID", None)
+
+    if not client.is_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Retell AI voice provider is unconfigured.",
+        )
+
+    try:
+        detail = client.get_agent(agent_id)
+        return VoiceAgentDetailResponse(
+            agent_id=detail.agent_id,
+            agent_name=detail.agent_name,
+            channel=detail.channel,
+            voice_id=detail.voice_id,
+            voice_model=detail.voice_model,
+            language=detail.language,
+            responsiveness=detail.responsiveness,
+            interruption_sensitivity=detail.interruption_sensitivity,
+            enable_backchannel=detail.enable_backchannel,
+            ambient_sound=detail.ambient_sound,
+            response_engine=detail.response_engine,
+            post_call_analysis_data=detail.post_call_analysis_data,
+            is_configured_sdr=bool(outbound_sdr_id and detail.agent_id == outbound_sdr_id),
+            is_configured_inbound=bool(inbound_id and detail.agent_id == inbound_id),
+        )
+    except RetellNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Retell agent '{agent_id}' not found.",
+        )
+    except RetellAuthenticationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Retell authentication rejected by provider.",
+        )
+    except RetellError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Retell provider error: {exc}",
+        )

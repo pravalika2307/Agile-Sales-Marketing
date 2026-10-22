@@ -74,10 +74,10 @@ class WorkflowValidationResult(BaseModel):
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     supported_step_types: List[str] = Field(
-        default_factory=lambda: ["email", "wait", "voice", "condition"]
+        default_factory=lambda: ["email", "sms", "wait", "voice", "condition"]
     )
     unavailable_step_types: List[str] = Field(
-        default_factory=lambda: ["sms", "linkedin", "social_publish"]
+        default_factory=lambda: ["linkedin", "social_publish"]
     )
 
 

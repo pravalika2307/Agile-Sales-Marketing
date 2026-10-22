@@ -66,6 +66,64 @@ def create_campaign(
     data: CampaignCreate,
 ) -> Campaign:
     """Create a new campaign for the organization in 'draft' status."""
+    channel = (data.first_step_channel or "email").strip().lower()
+
+    # Determine or synthesize initial workflow_config
+    workflow_config = data.workflow_config
+    if (not workflow_config or not isinstance(workflow_config, dict) or not workflow_config.get("nodes")) and channel in ("sms", "voice"):
+        start_id = "start-node"
+        step_id = "step-node-1"
+        if channel == "sms":
+            first_node = {
+                "id": step_id,
+                "type": "sms",
+                "title": "Step 1: SMS Outreach",
+                "config": {
+                    "step_number": 1,
+                    "body": "Hi {contact.first_name}, this is {sender_name} from {sender_company}. Are you available for a brief briefing? Book directly: {booking_link}",
+                    "delay_days": 0,
+                    "delay_hours": 0,
+                    "is_active": True,
+                },
+                "position": {"x": 250, "y": 180},
+            }
+        else:
+            first_node = {
+                "id": step_id,
+                "type": "voice",
+                "title": "Step 1: AI Voice SDR Call",
+                "config": {
+                    "step_number": 1,
+                    "agent_type": "outbound_sdr",
+                    "phone_required": True,
+                    "delay_days": 0,
+                    "delay_hours": 0,
+                    "is_active": True,
+                },
+                "position": {"x": 250, "y": 180},
+            }
+
+        workflow_config = {
+            "nodes": [
+                {
+                    "id": start_id,
+                    "type": "start",
+                    "title": "Campaign Trigger",
+                    "config": {},
+                    "position": {"x": 250, "y": 50},
+                },
+                first_node,
+            ],
+            "edges": [
+                {
+                    "id": f"edge-{start_id}-{step_id}",
+                    "source": start_id,
+                    "target": step_id,
+                    "label": "Next",
+                }
+            ],
+        }
+
     campaign = Campaign(
         organization_id=org_id,
         name=data.name.strip(),
@@ -73,15 +131,16 @@ def create_campaign(
         status="draft",
         description=data.description.strip() if data.description else None,
         schedule_settings=data.schedule_settings,
-        workflow_config=data.workflow_config,
+        workflow_config=workflow_config,
     )
     db.add(campaign)
     db.flush()
 
-    # Synchronize steps: if custom workflow email steps provided, create them; else create default Step 1
+    # Synchronize steps: if custom workflow email steps provided, create them;
+    # if channel is email and no email steps in workflow, create default Step 1
     has_custom_steps = False
-    if data.workflow_config and isinstance(data.workflow_config, dict):
-        wf_nodes = data.workflow_config.get("nodes", [])
+    if workflow_config and isinstance(workflow_config, dict):
+        wf_nodes = workflow_config.get("nodes", [])
         email_nodes = [n for n in wf_nodes if isinstance(n, dict) and n.get("type") == "email"]
         if email_nodes:
             has_custom_steps = True
@@ -100,7 +159,8 @@ def create_campaign(
                 )
                 db.add(step)
 
-    if not has_custom_steps:
+    # Only create default CampaignStep if the channel is email and no custom email steps were created
+    if not has_custom_steps and channel == "email":
         default_step = CampaignStep(
             organization_id=org_id,
             campaign_id=campaign.id,

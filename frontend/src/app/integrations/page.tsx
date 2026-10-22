@@ -9,6 +9,12 @@ import {
   HubSpotSyncSummary,
 } from "@/services/hubspotService";
 import {
+  getVoiceStatus,
+  getVoiceAgents,
+  VoiceStatusResponse,
+  VoiceAgentSummary,
+} from "@/services/voiceService";
+import {
   Layers,
   RefreshCw,
   CheckCircle2,
@@ -24,6 +30,10 @@ import {
   Lock,
   Clock,
   Sparkles,
+  PhoneCall,
+  Bot,
+  Radio,
+  Sliders,
 } from "lucide-react";
 
 export default function IntegrationsPage() {
@@ -36,6 +46,12 @@ export default function IntegrationsPage() {
     details?: string;
   } | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+
+  // Retell AI Voice State
+  const [voiceStatus, setVoiceStatus] = React.useState<VoiceStatusResponse | null>(null);
+  const [voiceAgents, setVoiceAgents] = React.useState<VoiceAgentSummary[]>([]);
+  const [isVoiceLoading, setIsVoiceLoading] = React.useState(true);
+  const [voiceError, setVoiceError] = React.useState<string | null>(null);
 
   const fetchStatus = React.useCallback(async () => {
     setIsLoading(true);
@@ -51,9 +67,31 @@ export default function IntegrationsPage() {
     }
   }, []);
 
+  const fetchVoiceData = React.useCallback(async () => {
+    setIsVoiceLoading(true);
+    setVoiceError(null);
+    try {
+      const [vStatus, vAgents] = await Promise.all([
+        getVoiceStatus(),
+        getVoiceAgents().catch((err) => {
+          console.warn("Notice loading voice agents:", err);
+          return { configured: false, connected: false, count: 0, items: [], message: err.message };
+        }),
+      ]);
+      setVoiceStatus(vStatus);
+      setVoiceAgents(vAgents.items || []);
+    } catch (err: any) {
+      console.error("Error fetching Voice integration status:", err);
+      setVoiceError(err.message || "Failed to load Retell Voice status.");
+    } finally {
+      setIsVoiceLoading(false);
+    }
+  }, []);
+
   React.useEffect(() => {
     fetchStatus();
-  }, [fetchStatus]);
+    fetchVoiceData();
+  }, [fetchStatus, fetchVoiceData]);
 
   const handleSyncNow = async () => {
     setIsSyncing(true);
@@ -189,12 +227,15 @@ export default function IntegrationsPage() {
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => fetchStatus()}
-              disabled={isLoading || isSyncing}
+              onClick={() => {
+                fetchStatus();
+                fetchVoiceData();
+              }}
+              disabled={isLoading || isSyncing || isVoiceLoading}
               className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50 shadow-xs"
               title="Refresh connection status"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin text-agile-red" : "text-slate-500"}`} />
+              <RefreshCw className={`w-4 h-4 ${isLoading || isVoiceLoading ? "animate-spin text-agile-red" : "text-slate-500"}`} />
               <span>Refresh</span>
             </button>
 
@@ -564,6 +605,217 @@ export default function IntegrationsPage() {
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
                   <strong>Data Integrity:</strong> Preserved local records (including voice test leads) are completely protected.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* Retell AI Voice Agents Card */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div className="p-6 sm:p-7 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-start gap-4">
+              {/* Voice / Telephony Badge */}
+              <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-600 shrink-0 shadow-inner">
+                <PhoneCall className="w-7 h-7" />
+              </div>
+
+              <div>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-bold text-slate-900">Retell AI Voice Agents</h2>
+                  {isVoiceLoading && !voiceStatus ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                      <RefreshCw className="w-3 h-3 animate-spin text-agile-red" />
+                      Checking status...
+                    </span>
+                  ) : voiceStatus?.connected ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Connected &amp; Authenticated
+                    </span>
+                  ) : voiceStatus?.configured ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                      Connection Notice ({voiceStatus.error || "Disconnected"})
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                      Unconfigured
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-xs text-slate-500 mt-1">
+                  Conversational Telephony AI &bull; Outbound B2B SDR &bull; Inbound Voice Receptionist
+                </p>
+
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-600">
+                  {voiceStatus?.outbound_from_number && (
+                    <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-700 font-medium">
+                      Caller ID: {voiceStatus.outbound_from_number}
+                    </span>
+                  )}
+                  {voiceStatus?.outbound_agent_id && (
+                    <span className="flex items-center gap-1">
+                      Outbound SDR: <strong className="font-mono text-slate-800">{voiceStatus.outbound_agent_id}</strong>
+                    </span>
+                  )}
+                  {voiceStatus?.inbound_agent_id && (
+                    <span className="flex items-center gap-1">
+                      Inbound: <strong className="font-mono text-slate-800">{voiceStatus.inbound_agent_id}</strong>
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Agent Count Metric */}
+            <div className="bg-slate-50/80 rounded-xl p-3.5 border border-slate-100 flex flex-col gap-1 text-xs md:text-right shrink-0">
+              <span className="text-slate-400 font-medium">Available Agents</span>
+              <span className="font-semibold text-slate-800 font-mono text-xs">
+                {isVoiceLoading ? "Probing..." : `${voiceAgents.length} Agent(s) Active`}
+              </span>
+              <div className="flex items-center gap-2 md:justify-end mt-0.5">
+                <span className="text-slate-500">API Gateway:</span>
+                <span className="text-slate-600 font-mono text-[10px] bg-slate-200/70 px-1.5 py-0.5 rounded">
+                  api.retellai.com
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Voice Integration Body */}
+          <div className="p-6 sm:p-7 space-y-6">
+            {/* Error Banner if Voice Error */}
+            {voiceError && (
+              <div className="p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3 text-red-800 text-xs">
+                <XCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-semibold">Voice Provider Notice</p>
+                  <p className="mt-0.5 text-red-700">{voiceError}</p>
+                </div>
+                <button
+                  onClick={() => fetchVoiceData()}
+                  className="px-2.5 py-1 text-xs font-semibold bg-red-100 hover:bg-red-200 text-red-800 rounded transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bot className="w-4 h-4 text-indigo-600" />
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+                  Discovered Voice Agents ({voiceAgents.length})
+                </h3>
+              </div>
+              <span className="text-xs text-slate-400">
+                Synchronized via Retell REST API &bull; Read-Only Telephony Discovery
+              </span>
+            </div>
+
+            {/* Agents List / Grid */}
+            {isVoiceLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {[1, 2].map((i) => (
+                  <div key={i} className="rounded-xl border border-slate-200 bg-white p-5 space-y-3 animate-pulse">
+                    <div className="h-4 bg-slate-100 rounded w-1/2" />
+                    <div className="h-3 bg-slate-100 rounded w-3/4" />
+                    <div className="h-3 bg-slate-100 rounded w-1/3" />
+                  </div>
+                ))}
+              </div>
+            ) : voiceAgents.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 p-8 text-center space-y-2">
+                <PhoneCall className="w-8 h-8 text-slate-300 mx-auto" />
+                <h4 className="text-sm font-semibold text-slate-700">No Retell Voice Agents Discovered</h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  {voiceStatus?.configured
+                    ? "Your Retell API key is configured, but no voice agents were returned by the workspace. Create an agent in your Retell AI dashboard to begin."
+                    : "Retell AI is currently unconfigured. Set RETELL_API_KEY in backend/.env to connect your conversational voice agents."}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {voiceAgents.map((agent) => (
+                  <div
+                    key={agent.agent_id}
+                    className="rounded-xl border border-slate-200 bg-white p-5 hover:border-indigo-300 transition-all space-y-3 shadow-xs"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                          <span>{agent.agent_name}</span>
+                        </h4>
+                        <span className="font-mono text-[11px] text-slate-400 block mt-0.5">
+                          {agent.agent_id}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1">
+                        {agent.is_configured_sdr && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                            <Radio className="w-2.5 h-2.5" />
+                            Active Outbound SDR
+                          </span>
+                        )}
+                        {agent.is_configured_inbound && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+                            <PhoneCall className="w-2.5 h-2.5" />
+                            Active Inbound Receptionist
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-slate-600">
+                      <div>
+                        <span className="text-slate-400 block">Channel:</span>
+                        <span className="font-medium capitalize text-slate-700">{agent.channel || "voice"}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Voice ID:</span>
+                        <span className="font-mono text-slate-700 truncate block">
+                          {agent.voice_id || "Default Voice"}
+                        </span>
+                      </div>
+                      {agent.response_engine_type && (
+                        <div className="col-span-2">
+                          <span className="text-slate-400 block">Response Engine:</span>
+                          <span className="font-mono text-slate-700">
+                            {agent.response_engine_type} {agent.llm_id ? `(${agent.llm_id})` : ""}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Architecture & Telephony Safety Commitments */}
+            <div className="rounded-xl bg-slate-50 p-4 border border-slate-200/60 text-xs text-slate-600 space-y-2">
+              <div className="flex items-center gap-2 font-semibold text-slate-800">
+                <ShieldAlert className="w-4 h-4 text-indigo-600" />
+                <span>Voice Telephony Safety Guarantees</span>
+              </div>
+              <ul className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1">
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  <strong>Zero Live Dialing During Checks:</strong> Status inspections and agent discoveries never place phone calls.
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  <strong>Secret Protection:</strong> Retell API keys and webhook secrets are never rendered in frontend bundles.
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  <strong>HMAC Webhook Verification:</strong> Inbound call events are cryptographically authenticated via SHA-256.
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  <strong>Suppression Enforced:</strong> 24-hour contact cooldown and DNC detection prevent prospect spamming.
                 </li>
               </ul>
             </div>

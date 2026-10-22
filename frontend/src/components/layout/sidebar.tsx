@@ -17,6 +17,9 @@ import {
   ChevronLeft,
   ChevronRight,
   ListOrdered,
+  ShieldCheck,
+  ShieldAlert,
+  Inbox,
 } from "lucide-react";
 
 export interface NavItem {
@@ -32,11 +35,14 @@ export const navigationItems: NavItem[] = [
   { name: "Leads", href: "/leads", icon: Users },
   { name: "Campaigns", href: "/campaigns", icon: Send },
   { name: "Outreach", href: "/outreach", icon: PhoneCall },
+  { name: "Support Inbox", href: "/inbox", icon: Inbox },
   { name: "Pipeline", href: "/pipeline", icon: KanbanSquare },
   { name: "Analytics", href: "/analytics", icon: BarChart3 },
 ];
 
 export const secondaryNavigationItems: NavItem[] = [
+  { name: "Channels & Plans", href: "/settings/entitlements", icon: ShieldCheck },
+  { name: "Admin Upgrades", href: "/admin/upgrades", icon: ShieldAlert },
   { name: "Integrations", href: "/integrations", icon: Layers },
   { name: "Settings", href: "/settings", icon: Settings },
 ];

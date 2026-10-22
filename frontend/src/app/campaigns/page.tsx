@@ -88,10 +88,12 @@ export default function CampaignsPage() {
     name: string;
     type: CampaignType;
     description: string;
+    first_step_channel: "email" | "sms" | "voice";
   }>({
     name: "",
     type: "sales_outbound",
     description: "",
+    first_step_channel: "email",
   });
 
   // Load campaigns from real backend API
@@ -170,10 +172,79 @@ export default function CampaignsPage() {
     setIsCreating(true);
     setErrorMessage(null);
     try {
+      const channel = newCampaignForm.first_step_channel;
+      const startId = "start-node";
+      const stepId = "step-node-1";
+
+      const initialWorkflow = {
+        nodes: [
+          {
+            id: startId,
+            type: "start" as const,
+            title: "Campaign Trigger",
+            config: {},
+            position: { x: 250, y: 50 },
+          },
+          channel === "sms"
+            ? {
+                id: stepId,
+                type: "sms" as const,
+                title: "Step 1: SMS Outreach",
+                config: {
+                  step_number: 1,
+                  body: "Hi {contact.first_name}, this is {sender_name} from {sender_company}. Are you available for a brief briefing? Book directly: {booking_link}",
+                  delay_days: 0,
+                  delay_hours: 0,
+                  is_active: true,
+                },
+                position: { x: 250, y: 180 },
+              }
+            : channel === "voice"
+            ? {
+                id: stepId,
+                type: "voice" as const,
+                title: "Step 1: AI Voice SDR Call",
+                config: {
+                  step_number: 1,
+                  agent_type: "outbound_sdr",
+                  phone_required: true,
+                  delay_days: 0,
+                  delay_hours: 0,
+                  is_active: true,
+                },
+                position: { x: 250, y: 180 },
+              }
+            : {
+                id: stepId,
+                type: "email" as const,
+                title: "Step 1: Introduction Email",
+                config: {
+                  step_number: 1,
+                  subject: "Introduction to Agile Sales & Marketing",
+                  body: "Hi {contact.first_name},\n\nConnecting from Agile Sales & Marketing.",
+                  delay_days: 0,
+                  delay_hours: 0,
+                  is_active: true,
+                },
+                position: { x: 250, y: 180 },
+              },
+        ],
+        edges: [
+          {
+            id: `edge-${startId}-${stepId}`,
+            source: startId,
+            target: stepId,
+            label: "Next",
+          },
+        ],
+      };
+
       const created = await createCampaign({
         name: newCampaignForm.name.trim(),
         type: newCampaignForm.type,
         description: newCampaignForm.description.trim() || undefined,
+        first_step_channel: channel,
+        workflow_config: initialWorkflow,
       });
 
       setIsNewCampaignModalOpen(false);
@@ -181,10 +252,11 @@ export default function CampaignsPage() {
         name: "",
         type: "sales_outbound",
         description: "",
+        first_step_channel: "email",
       });
       // Refresh real campaigns from backend
       await loadCampaigns();
-      // Guided workflow builder entry: immediately launch workflow designer for newly created campaign
+      // Guided workflow builder entry: immediately launch workflow designer with persisted channel
       setWorkflowBuilderCampaign(created);
     } catch (err: unknown) {
       console.error("Error creating campaign:", err);
@@ -652,6 +724,22 @@ export default function CampaignsPage() {
               { value: "sales_outbound", label: "Sales Outbound (B2B Lead Cadence)" },
               { value: "marketing_social", label: "Marketing Social" },
               { value: "hybrid", label: "Hybrid (Multi-touch Outreach)" },
+            ]}
+          />
+
+          <Select
+            label="Initial Communication Channel"
+            value={newCampaignForm.first_step_channel}
+            onChange={(e) =>
+              setNewCampaignForm({
+                ...newCampaignForm,
+                first_step_channel: e.target.value as "email" | "sms" | "voice",
+              })
+            }
+            options={[
+              { value: "email", label: "Email Outreach (Standard outbound cadence)" },
+              { value: "sms", label: "SMS Outreach (Twilio SMS / MMS text outreach)" },
+              { value: "voice", label: "AI Voice Call (Retell AI outbound SDR call)" },
             ]}
           />
 

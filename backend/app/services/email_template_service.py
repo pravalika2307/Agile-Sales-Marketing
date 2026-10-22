@@ -5,6 +5,7 @@ import uuid
 from typing import List, Optional, Tuple
 
 from sqlalchemy import func
+from sqlalchemy.exc import ProgrammingError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.models.email_template import EmailTemplate
@@ -29,30 +30,34 @@ def list_templates(
     Lists reusable email templates belonging strictly to the authenticated organization.
     Supports category filtering, name/subject search, and pagination.
     """
-    query = db.query(EmailTemplate).filter(EmailTemplate.organization_id == org_id)
+    try:
+        query = db.query(EmailTemplate).filter(EmailTemplate.organization_id == org_id)
 
-    if category and category.strip():
-        query = query.filter(EmailTemplate.category == category.strip().lower())
+        if category and category.strip():
+            query = query.filter(EmailTemplate.category == category.strip().lower())
 
-    if is_active is not None:
-        query = query.filter(EmailTemplate.is_active == is_active)
+        if is_active is not None:
+            query = query.filter(EmailTemplate.is_active == is_active)
 
-    if search and search.strip():
-        term = f"%{search.strip().lower()}%"
-        query = query.filter(
-            func.lower(EmailTemplate.name).like(term)
-            | func.lower(EmailTemplate.subject_template).like(term)
-            | func.lower(EmailTemplate.description).like(term)
+        if search and search.strip():
+            term = f"%{search.strip().lower()}%"
+            query = query.filter(
+                func.lower(EmailTemplate.name).like(term)
+                | func.lower(EmailTemplate.subject_template).like(term)
+                | func.lower(EmailTemplate.description).like(term)
+            )
+
+        total = query.count()
+        templates = (
+            query.order_by(EmailTemplate.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+            .all()
         )
-
-    total = query.count()
-    templates = (
-        query.order_by(EmailTemplate.created_at.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
-    return templates, total
+        return templates, total
+    except (ProgrammingError, OperationalError):
+        db.rollback()
+        return [], 0
 
 
 def get_template(

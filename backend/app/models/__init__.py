@@ -36,8 +36,36 @@ from app.models.call_record import CallRecord
 from app.models.hubspot_sync import HubSpotSyncRun
 from app.models.contact_list import ContactList, ContactListMember, CampaignList
 from app.models.email_template import EmailTemplate, ALLOWED_TEMPLATE_CATEGORIES
+from app.models.entitlement import (
+    OrganizationChannelEntitlement,
+    ChannelUpgradeRequest,
+    EntitlementAuditLog,
+    ALLOWED_CHANNELS,
+    ALLOWED_ENTITLEMENT_STATUSES,
+    ALLOWED_UPGRADE_REQUEST_STATUSES,
+)
+from app.models.inbound_email import (
+    InboundEmail,
+    GraphSyncRun,
+    GraphMailboxCheckpoint,
+    ALLOWED_SYNC_STATUSES,
+    ALLOWED_MANUAL_REVIEW_STATUSES,
+    ALLOWED_GRAPH_SYNC_RUN_STATUSES,
+)
 
 __all__ = [
+    "InboundEmail",
+    "GraphSyncRun",
+    "GraphMailboxCheckpoint",
+    "ALLOWED_SYNC_STATUSES",
+    "ALLOWED_MANUAL_REVIEW_STATUSES",
+    "ALLOWED_GRAPH_SYNC_RUN_STATUSES",
+    "OrganizationChannelEntitlement",
+    "ChannelUpgradeRequest",
+    "EntitlementAuditLog",
+    "ALLOWED_CHANNELS",
+    "ALLOWED_ENTITLEMENT_STATUSES",
+    "ALLOWED_UPGRADE_REQUEST_STATUSES",
     "EmailTemplate",
     "ALLOWED_TEMPLATE_CATEGORIES",
     "ContactList",

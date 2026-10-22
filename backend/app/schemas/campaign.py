@@ -19,6 +19,7 @@ class CampaignCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Campaign name")
     type: str = Field("sales_outbound", description="Campaign type: sales_outbound, marketing_social, or hybrid")
     description: Optional[str] = Field(None, description="Optional campaign description")
+    first_step_channel: Optional[str] = Field("email", description="Initial channel type for workflow: email, sms, or voice")
     schedule_settings: Optional[Dict[str, Any]] = Field(None, description="Optional scheduling configuration")
     workflow_config: Optional[Dict[str, Any]] = Field(None, description="Visual workflow builder configuration")
 
@@ -28,6 +29,19 @@ class CampaignCreate(BaseModel):
         clean = v.strip()
         if not clean:
             raise ValueError("Campaign name cannot be empty or whitespace only.")
+        return clean
+
+    @field_validator("first_step_channel")
+    @classmethod
+    def validate_first_step_channel(cls, v: Optional[str]) -> str:
+        if v is None:
+            return "email"
+        clean = v.strip().lower()
+        allowed = {"email", "sms", "voice"}
+        if clean not in allowed:
+            raise ValueError(
+                f"Invalid first_step_channel '{v}'. Allowed channels: {sorted(list(allowed))}"
+            )
         return clean
 
     @field_validator("type")

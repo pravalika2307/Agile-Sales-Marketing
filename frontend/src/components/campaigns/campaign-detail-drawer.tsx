@@ -42,6 +42,7 @@ import {
   Plus,
   Check,
   AlertTriangle,
+  MessageSquare,
 } from "lucide-react";
 import {
   ContactListItem,
@@ -669,10 +670,17 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Supported Channel</span>
-                <span className="text-slate-800 font-medium flex items-center gap-1">
-                  <Mail className="w-3.5 h-3.5 text-slate-400" />
-                  Email (Amazon SES / Resend)
+                <span className="text-slate-500">Supported Channels</span>
+                <span className="text-slate-800 font-medium flex items-center gap-2">
+                  <span className="flex items-center gap-1">
+                    <Mail className="w-3.5 h-3.5 text-slate-400" />
+                    Email
+                  </span>
+                  <span className="text-slate-300">•</span>
+                  <span className="flex items-center gap-1 text-emerald-700">
+                    <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                    SMS (Twilio)
+                  </span>
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -1023,9 +1031,9 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
 
                       {/* Status badge */}
                       {outreach.status === "sent" ? (
-                        outreach.provider === "mock" ? (
+                        outreach.provider?.startsWith("mock") ? (
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider bg-amber-50 text-amber-700 border-amber-200">
-                            Simulated (Mock)
+                            Simulated (Safe Mock)
                           </span>
                         ) : outreach.firstDeliveredAt ? (
                           <span className="text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider bg-emerald-50 text-emerald-700 border-emerald-200">
@@ -1056,8 +1064,14 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                     {/* Subject & snippet */}
                     <div className="text-[11px] bg-slate-50 p-2.5 rounded border border-slate-100 space-y-1">
                       <div className="flex items-center gap-1 font-medium text-slate-700">
-                        <span className="text-slate-400">Subject:</span>
-                        <span>{outreach.subject || "(No subject)"}</span>
+                        <span className="text-slate-400">
+                          {outreach.channel === "sms" ? "SMS Channel:" : "Subject:"}
+                        </span>
+                        <span>
+                          {outreach.channel === "sms"
+                            ? "Direct SMS Message"
+                            : outreach.subject || "(No subject)"}
+                        </span>
                       </div>
                       {outreach.body && (
                         <p className="text-slate-500 line-clamp-2 text-[10.5px]">
@@ -1079,13 +1093,13 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                     {/* Send action */}
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-[10px] text-slate-500 font-mono">
-                        {outreach.provider === "mock"
-                          ? "Provider: Mock (Simulation)"
+                        {outreach.provider?.startsWith("mock")
+                          ? `Provider: Mock (${outreach.channel === "sms" ? "Twilio SMS Simulation" : "Email Simulation"})`
                           : outreach.provider
                           ? `Provider: ${outreach.provider}`
-                          : "Channel: Email"}
+                          : `Channel: ${outreach.channel.toUpperCase()}`}
                         {outreach.sentAt
-                          ? ` • ${outreach.provider === "mock" ? "Simulated" : "Sent"} ${new Date(outreach.sentAt).toLocaleTimeString()}`
+                          ? ` • ${outreach.provider?.startsWith("mock") ? "Simulated" : "Sent"} ${new Date(outreach.sentAt).toLocaleTimeString()}`
                           : ""}
                         {outreach.firstDeliveredAt
                           ? ` • Delivered ${new Date(outreach.firstDeliveredAt).toLocaleTimeString()}`
@@ -1102,7 +1116,11 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                         >
                           <Send className="w-3 h-3" />
                           <span>
-                            {sendingOutreachId === outreach.id ? "Sending..." : "Send Email"}
+                            {sendingOutreachId === outreach.id
+                              ? "Sending..."
+                              : outreach.channel === "sms"
+                              ? "Send SMS (Mock)"
+                              : "Send Email"}
                           </span>
                         </Button>
                       )}

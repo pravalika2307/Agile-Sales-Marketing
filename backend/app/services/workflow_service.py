@@ -121,12 +121,39 @@ def validate_workflow(workflow_config: WorkflowConfig) -> WorkflowValidationResu
                     "Voice execution will operate in test mode."
                 )
 
-        # 4. SMS Step Validation (Honest reporting: no provider configured)
+        # 4. SMS Step Validation
         elif node_type == "sms":
-            warnings.append(
-                f"Step '{node.title}' (SMS): SMS gateway is currently unconfigured. "
-                "Step cannot be executed until an SMS integration (Twilio / Amazon SNS) is provisioned."
-            )
+            body = (cfg.get("body") or cfg.get("body_template") or "").strip()
+            if not body:
+                errors.append(f"Step '{node.title}' (SMS) is missing message content.")
+            else:
+                unresolved = find_unresolved_placeholders(body)
+                for ph in unresolved:
+                    clean_var = ph.strip("{}").strip().lower()
+                    if clean_var not in KNOWN_TEMPLATE_VARIABLES:
+                        errors.append(
+                            f"Step '{node.title}' contains unknown placeholder '{ph}' in body. "
+                            f"Supported variables: {', '.join(sorted(list(KNOWN_TEMPLATE_VARIABLES)))}."
+                        )
+                from app.services.sms.base import calculate_sms_segments
+                seg_calc = calculate_sms_segments(body)
+                if seg_calc["character_count"] > 1600:
+                    errors.append(
+                        f"Step '{node.title}' (SMS) message length ({seg_calc['character_count']} chars) "
+                        "exceeds maximum carrier limit of 1600 characters."
+                    )
+                elif seg_calc["segment_count"] > 1:
+                    warnings.append(
+                        f"Step '{node.title}' (SMS): Message will be sent as {seg_calc['segment_count']} "
+                        f"segments ({seg_calc['character_count']} chars, {seg_calc['encoding']})."
+                    )
+
+            if not settings.is_twilio_live_sending_allowed:
+                warnings.append(
+                    f"Step '{node.title}' (SMS): Real SMS delivery is disabled (TWILIO_ENABLED=False). "
+                    "SMS gateway is currently unconfigured for live delivery. "
+                    "Campaign will execute in safe mock mode without external Twilio delivery."
+                )
 
         # 5. Condition Branch Step Validation
         elif node_type == "condition":
@@ -226,15 +253,17 @@ def get_or_recover_campaign_workflow(
     else:
         y_pos = 180
         for idx, step in enumerate(steps, start=1):
-            step_node_id = f"step-node-{step.id}"
-            title = f"Step {step.step_number}: {step.subject_template or 'Email Outreach'}"
+            step_type = step.step_type if step.step_type in ("email", "sms", "voice") else "email"
+            default_label = "SMS Outreach" if step_type == "sms" else ("AI Voice Call" if step_type == "voice" else "Email Outreach")
+            title = f"Step {step.step_number}: {step.subject_template or default_label}"
             if len(title) > 36:
                 title = title[:33] + "..."
 
+            step_node_id = f"step-node-{step.id}"
             nodes.append(
                 WorkflowNode(
                     id=step_node_id,
-                    type="email",
+                    type=step_type,
                     title=title,
                     config={
                         "step_id": str(step.id),
@@ -358,7 +387,7 @@ def save_campaign_workflow(
 
     # If there were more steps before than now, mark remaining as inactive or delete if safe
     for old_num, old_step in existing_by_num.items():
-        if old_num not in used_numbers and old_num > 1:
+        if old_num not in used_numbers:
             db.delete(old_step)
 
     db.commit()
