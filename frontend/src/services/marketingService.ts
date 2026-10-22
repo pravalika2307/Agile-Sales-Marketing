@@ -218,3 +218,83 @@ export async function approveAndSchedulePost(
 ): Promise<{ success: boolean; post: any }> {
   return updateKanbanPostStatus(postId, "scheduled");
 }
+
+export interface SocialMediaPostAnalytics {
+  id: string;
+  impressions: number;
+  reach: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  saves: number;
+  totalEngagement: number;
+  engagementRate: number;
+  profileVisits: number;
+  linkClicks: number;
+  lastUpdated: string | Date;
+}
+
+export interface SocialMediaPostItem {
+  id: string;
+  platform: "INSTAGRAM" | "FACEBOOK";
+  topic: string;
+  caption: string;
+  format: string;
+  contentPillar: string;
+  permalink: string | null;
+  scheduledDate: string | Date | null;
+  status: string;
+  externalPostId: string | null;
+  analytics: SocialMediaPostAnalytics | null;
+}
+
+export interface InstagramKpis {
+  totalReach: number;
+  avgEngagementRate: number;
+  totalSaves: number;
+  totalLikes: number;
+  totalComments: number;
+  totalShares: number;
+  totalEngagement: number;
+  postCount: number;
+}
+
+export interface FacebookKpis {
+  totalEngagement: number;
+  avgEngagementRate: number;
+  totalReactions: number;
+  totalComments: number;
+  totalShares: number;
+  totalReach: number;
+  avgEngagementPerPost: number;
+  postCount: number;
+}
+
+export interface SocialMediaAnalyticsResponse {
+  success: boolean;
+  timestamp: string;
+  data: {
+    instagram: {
+      kpis: InstagramKpis;
+      topPost: SocialMediaPostItem | null;
+      posts: SocialMediaPostItem[];
+    };
+    facebook: {
+      kpis: FacebookKpis;
+      topPost: SocialMediaPostItem | null;
+      posts: SocialMediaPostItem[];
+    };
+  };
+}
+
+export async function fetchSocialMediaAnalytics(): Promise<SocialMediaAnalyticsResponse> {
+  const res = await fetch("/api/marketing/social-media", {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch social media analytics: ${res.statusText}`);
+  }
+  return res.json();
+}
