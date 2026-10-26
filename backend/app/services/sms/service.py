@@ -93,7 +93,62 @@ def validate_recipient_phone(phone: Optional[str]) -> Dict[str, Any]:
     }
 
 
-def check_sms_consent(contact_or_lead: Any) -> Tuple[bool, Optional[str]]:
+def is_sms_suppressed(
+    db: Session,
+    org_id: uuid.UUID,
+    phone: Optional[str] = None,
+    contact: Optional[Any] = None,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Centralized preflight check for SMS suppression.
+    
+    Returns:
+        (is_suppressed: bool, suppression_reason: Optional[str])
+        
+    Guarantees:
+    - Checks global contact opt-out (lead_status in 'opted_out', 'unsubscribed').
+    - Checks durable SMS-specific suppression table (SMSSuppression) by organization and phone.
+    - Fails closed safely if suppression record is found.
+    """
+    # 1. Global contact opt-out
+    if contact:
+        lead_status = getattr(contact, "lead_status", None)
+        if lead_status in ("opted_out", "unsubscribed"):
+            return True, f"Contact globally opted out (lead_status: '{lead_status}')"
+
+    # 2. Check phone presence and normalize
+    target_phone = phone or (getattr(contact, "phone", None) if contact else None)
+    if not target_phone or not str(target_phone).strip():
+        return False, None
+
+    is_valid, formatted_phone, _ = normalize_phone_number(str(target_phone))
+    if not is_valid:
+        return False, None
+
+    # 3. Query SMSSuppression table safely
+    try:
+        from app.models.sms import SMSSuppression
+        suppression = (
+            db.query(SMSSuppression)
+            .filter(
+                SMSSuppression.organization_id == org_id,
+                SMSSuppression.phone == formatted_phone,
+            )
+            .first()
+        )
+        if suppression:
+            return True, f"Phone number {formatted_phone} is opted out of SMS (keyword: {suppression.keyword or 'STOP'})"
+    except Exception as exc:
+        logger.debug("SMS suppression table lookup skipped (table may be pending migration): %s", exc)
+
+    return False, None
+
+
+def check_sms_consent(
+    contact_or_lead: Any,
+    db: Optional[Session] = None,
+    org_id: Optional[uuid.UUID] = None,
+) -> Tuple[bool, Optional[str]]:
     """
     Evaluates whether a prospect is legally and operationally eligible for SMS outreach.
 
@@ -101,6 +156,7 @@ def check_sms_consent(contact_or_lead: Any) -> Tuple[bool, Optional[str]]:
     1. Phone number presence.
     2. Phone number E.164 compliance.
     3. Explicit opt-out / suppression status (e.g. 'opted_out', 'unsubscribed').
+    4. Durable SMS-specific opt-out suppression table (if db and org_id provided).
     """
     if not contact_or_lead:
         return False, "Contact record not found."
@@ -113,9 +169,14 @@ def check_sms_consent(contact_or_lead: Any) -> Tuple[bool, Optional[str]]:
     if not phone or not str(phone).strip():
         return False, "Recipient has no phone number recorded."
 
-    is_valid, _, err = normalize_phone_number(str(phone))
+    is_valid, formatted, err = normalize_phone_number(str(phone))
     if not is_valid:
         return False, f"Recipient phone number is invalid: {err}"
+
+    if db is not None and org_id is not None:
+        suppressed, reason = is_sms_suppressed(db, org_id, phone=formatted, contact=contact_or_lead)
+        if suppressed:
+            return False, reason
 
     return True, None
 
@@ -274,7 +335,7 @@ def send_sms_outreach(
     if not contact:
         raise SMSServiceError("Referenced contact record is missing.")
 
-    is_eligible, ineligibility_reason = check_sms_consent(contact)
+    is_eligible, ineligibility_reason = check_sms_consent(contact, db=db, org_id=org_id)
     if not is_eligible:
         raise SMSConsentSuppressedError(f"SMS delivery blocked: {ineligibility_reason}")
 
@@ -283,6 +344,11 @@ def send_sms_outreach(
     is_valid, formatted_phone, phone_err = normalize_phone_number(target_phone)
     if not is_valid:
         raise InvalidPhoneNumberError(f"Recipient phone number is invalid: {phone_err}")
+
+    # Centralized preflight check on target phone
+    suppressed, suppression_reason = is_sms_suppressed(db, org_id, phone=formatted_phone, contact=contact)
+    if suppressed:
+        raise SMSConsentSuppressedError(f"SMS delivery blocked: {suppression_reason}")
 
     # Update recipient to canonical E.164
     outreach.recipient = formatted_phone

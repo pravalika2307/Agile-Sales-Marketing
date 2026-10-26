@@ -112,7 +112,16 @@ def preview_campaign_execution(
                 skipped_ids.append(cc.id)
             else:
                 step1_type = getattr(step_1, "step_type", "email") or "email"
-                if step1_type in ("voice", "sms") and not (contact and contact.phone):
+                if step1_type == "sms":
+                    if not (contact and contact.phone):
+                        skipped_ids.append(cc.id)
+                        continue
+                    from app.services.sms.service import is_sms_suppressed
+                    suppressed, _ = is_sms_suppressed(db, org_id, phone=contact.phone, contact=contact)
+                    if suppressed:
+                        skipped_ids.append(cc.id)
+                        continue
+                elif step1_type == "voice" and not (contact and contact.phone):
                     skipped_ids.append(cc.id)
                     continue
                 elif step1_type == "physical_mail" and not (contact and contact.postal_address_line1):
@@ -302,6 +311,12 @@ def execute_campaign(
                     rendered_body = step_1.body_template or "Outbound AI Voice SDR call via Retell."
                     outreach_recipient = contact.phone
                 elif step1_type == "sms":
+                    from app.services.sms.service import is_sms_suppressed
+                    suppressed, suppression_reason = is_sms_suppressed(db, org_id, phone=contact.phone, contact=contact)
+                    if suppressed:
+                        logger.warning("Blocked SMS dispatch for contact %s: %s", contact.id, suppression_reason)
+                        rejected_ids.append(cc.id)
+                        continue
                     rendered_subject = None
                     rendered_body = render_template(
                         step_1.body_template,

@@ -411,6 +411,64 @@ class Settings(BaseSettings):
         """
         return bool(self.is_graph_live_sync_allowed and self.MICROSOFT_GRAPH_AUTO_SYNC_ENABLED)
 
+    # LinkedIn OpenID Connect & OAuth Integration Settings
+    LINKEDIN_CLIENT_ID: Optional[str] = Field(
+        default=None,
+        description="LinkedIn Developer Application Client ID",
+    )
+    LINKEDIN_CLIENT_SECRET: Optional[str] = Field(
+        default=None,
+        repr=False,
+        description="LinkedIn Developer Application Primary Client Secret (never exposed in logs/repr)",
+    )
+    LINKEDIN_REDIRECT_URI: str = Field(
+        default="http://127.0.0.1:8000/api/v1/integrations/linkedin/callback",
+        description="Authorized redirect URI registered in the LinkedIn Developer portal",
+    )
+    LINKEDIN_SCOPES: str = Field(
+        default="openid profile email",
+        description="Authorized OpenID Connect scopes requested during authorization",
+    )
+    LINKEDIN_TOKEN_ENCRYPTION_KEY: Optional[str] = Field(
+        default=None,
+        repr=False,
+        description="Custom Fernet 32-byte base64 encryption key for token-at-rest encryption. If None, derived deterministically from SECRET_KEY.",
+    )
+    LINKEDIN_FRONTEND_REDIRECT_URL: str = Field(
+        default="http://localhost:3000/integrations",
+        description="Frontend redirect URL following OAuth authorization callback completion",
+    )
+    LINKEDIN_JWKS_URL: str = Field(
+        default="https://www.linkedin.com/oauth/openid/jwks",
+        description="LinkedIn OpenID Connect JSON Web Key Set (JWKS) endpoint",
+    )
+    LINKEDIN_AUTH_URL: str = Field(
+        default="https://www.linkedin.com/oauth/v2/authorization",
+        description="LinkedIn OAuth authorization endpoint",
+    )
+    LINKEDIN_TOKEN_URL: str = Field(
+        default="https://www.linkedin.com/oauth/v2/accessToken",
+        description="LinkedIn OAuth token exchange endpoint",
+    )
+    LINKEDIN_USERINFO_URL: str = Field(
+        default="https://api.linkedin.com/v2/userinfo",
+        description="LinkedIn OpenID Connect member userinfo endpoint",
+    )
+    LINKEDIN_TIMEOUT_SECONDS: float = Field(
+        default=15.0,
+        description="HTTP client timeout in seconds for LinkedIn OAuth requests",
+    )
+
+    @property
+    def is_linkedin_configured(self) -> bool:
+        """Check if LinkedIn OAuth credentials (Client ID and Client Secret) are configured."""
+        return bool(
+            self.LINKEDIN_CLIENT_ID
+            and self.LINKEDIN_CLIENT_ID.strip()
+            and self.LINKEDIN_CLIENT_SECRET
+            and self.LINKEDIN_CLIENT_SECRET.strip()
+        )
+
 
 settings = Settings()
 

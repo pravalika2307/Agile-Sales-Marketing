@@ -52,8 +52,22 @@ from app.models.inbound_email import (
     ALLOWED_MANUAL_REVIEW_STATUSES,
     ALLOWED_GRAPH_SYNC_RUN_STATUSES,
 )
+from app.models.linkedin import (
+    LinkedInConnection,
+    LinkedInOAuthState,
+    ALLOWED_LINKEDIN_STATUSES,
+)
+from app.models.sms import (
+    SMSSuppression,
+    InboundSMSMessage,
+)
 
 __all__ = [
+    "SMSSuppression",
+    "InboundSMSMessage",
+    "LinkedInConnection",
+    "LinkedInOAuthState",
+    "ALLOWED_LINKEDIN_STATUSES",
     "InboundEmail",
     "GraphSyncRun",
     "GraphMailboxCheckpoint",

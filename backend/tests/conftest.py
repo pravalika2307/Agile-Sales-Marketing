@@ -65,8 +65,9 @@ async def async_api_client():
 
 @pytest.fixture(autouse=True)
 def isolate_test_email_provider(monkeypatch):
-    """Ensure automated tests use mock email provider by default so no real emails are sent."""
+    """Ensure automated tests use mock email and mock voice by default so no live external calls/emails occur."""
     from app.core.config import settings
     monkeypatch.setattr(settings, "EMAIL_PROVIDER_TYPE", "mock")
     monkeypatch.setattr(settings, "RESEND_API_KEY", "")
+    monkeypatch.setattr(settings, "RETELL_ALLOW_LIVE_CALLS", False)
 
