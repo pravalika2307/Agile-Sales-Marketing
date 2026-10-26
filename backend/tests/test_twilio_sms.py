@@ -239,29 +239,33 @@ def test_mock_provider_deterministic_send():
 
 def test_twilio_provider_fails_closed_when_live_sending_disabled():
     """TwilioSMSProvider aborts before calling Twilio API if live sending is disabled."""
-    provider = TwilioSMSProvider(
-        account_sid="ACmockaccountsid1234567890abcdef",
-        auth_token="mockauthtoken1234567890abcdef",
-        from_number="+15005550006",
-    )
-    msg = SMSMessage(
-        to_phone="+14155552671",
-        body="Test safety lock",
-        from_phone="+15005550006",
-    )
-    result = provider.send(msg)
+    from unittest.mock import patch
+    with patch.object(settings, "TWILIO_ENABLED", False), patch.object(settings, "TWILIO_ALLOW_LIVE_SENDING", False):
+        provider = TwilioSMSProvider(
+            account_sid="ACmockaccountsid1234567890abcdef",
+            auth_token="mockauthtoken1234567890abcdef",
+            from_number="+15005550006",
+        )
+        msg = SMSMessage(
+            to_phone="+14155552671",
+            body="Test safety lock",
+            from_phone="+15005550006",
+        )
+        result = provider.send(msg)
 
-    # Must fail closed with explicit security error, without making an external request
-    assert result.success is False
-    assert result.provider == "twilio"
-    assert "Real SMS sending is strictly disabled" in result.error_message
-    assert result.provider_message_id == ""
+        # Must fail closed with explicit security error, without making an external request
+        assert result.success is False
+        assert result.provider == "twilio"
+        assert "Real SMS sending is strictly disabled" in result.error_message
+        assert result.provider_message_id == ""
 
 
 def test_get_sms_provider_defaults_to_mock():
     """When TWILIO_ENABLED=False or TWILIO_ALLOW_LIVE_SENDING=False, get_sms_provider returns MockSMSProvider."""
-    provider = get_sms_provider()
-    assert isinstance(provider, MockSMSProvider)
+    from unittest.mock import patch
+    with patch.object(settings, "TWILIO_ENABLED", False):
+        provider = get_sms_provider()
+        assert isinstance(provider, MockSMSProvider)
 
 
 # ── 5. Message Personalization & Booking Link Resolution ──────────────────────

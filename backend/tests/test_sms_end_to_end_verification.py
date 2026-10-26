@@ -427,20 +427,22 @@ def test_p2_suppression_blocking_campaign_generated_sends(test_db_session: Sessi
 
 def test_p2_cannot_fall_through_to_real_twilio():
     """Verify that get_sms_provider() strictly defaults to MockSMSProvider and TwilioSMSProvider fails closed."""
-    # 1. get_sms_provider returns MockSMSProvider
-    prov = get_sms_provider()
-    assert isinstance(prov, MockSMSProvider)
+    from unittest.mock import patch
+    with patch.object(settings, "TWILIO_ENABLED", False), patch.object(settings, "TWILIO_ALLOW_LIVE_SENDING", False):
+        # 1. get_sms_provider returns MockSMSProvider
+        prov = get_sms_provider()
+        assert isinstance(prov, MockSMSProvider)
 
-    # 2. TwilioSMSProvider fails closed when live sending is disabled
-    twilio_prov = TwilioSMSProvider(
-        account_sid="ACmocktest1234567890abcdef12345678",
-        auth_token="mocktesttoken1234567890abcdef1234",
-        from_number="+15005550006",
-    )
-    res = twilio_prov.send(SMSMessage(to_phone="+14155552671", body="Test message"))
-    assert res.success is False
-    assert res.provider == "twilio"
-    assert "strictly disabled" in res.error_message
+        # 2. TwilioSMSProvider fails closed when live sending is disabled
+        twilio_prov = TwilioSMSProvider(
+            account_sid="ACmocktest1234567890abcdef12345678",
+            auth_token="mocktesttoken1234567890abcdef1234",
+            from_number="+15005550006",
+        )
+        res = twilio_prov.send(SMSMessage(to_phone="+14155552671", body="Test message"))
+        assert res.success is False
+        assert res.provider == "twilio"
+        assert "strictly disabled" in res.error_message
 
 
 # ══════════════════════════════════════════════════════════════════════════════
