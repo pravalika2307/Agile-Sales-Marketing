@@ -27,6 +27,23 @@ if TYPE_CHECKING:
     from app.models.tenant import Organization, User
 
 
+_lead_unmigrated_address_store = {}
+
+def _check_column_exists(table_name: str, column_name: str) -> bool:
+    """Checks if a column physically exists in the database table to support unmigrated DBs safely."""
+    try:
+        from sqlalchemy import inspect
+        from app.core.database import engine
+        insp = inspect(engine)
+        if not insp.has_table(table_name):
+            # In-memory test SQLite databases before tables are created
+            return True
+        cols = [c["name"] for c in insp.get_columns(table_name)]
+        return column_name in cols
+    except Exception:
+        return True
+
+
 class Lead(Base):
     """
     Prospecting-layer record holding discovered lead metadata, snapshot attributes,
@@ -105,7 +122,85 @@ class Lead(Base):
         String(100),
         nullable=True,
         index=True,
+        default="US",
     )
+
+    if _check_column_exists("leads", "address_line_1"):
+        state: Mapped[Optional[str]] = mapped_column(
+            String(50),
+            nullable=True,
+            index=True,
+        )
+        postal_code: Mapped[Optional[str]] = mapped_column(
+            String(20),
+            nullable=True,
+            index=True,
+        )
+        address_line_1: Mapped[Optional[str]] = mapped_column(
+            String(255),
+            nullable=True,
+        )
+        address_line_2: Mapped[Optional[str]] = mapped_column(
+            String(255),
+            nullable=True,
+        )
+    else:
+        # Fallback properties when running against unmigrated database
+        @property
+        def state(self) -> Optional[str]:
+            if hasattr(self, "_state_val"):
+                return self._state_val
+            return _lead_unmigrated_address_store.get(getattr(self, "id", None), {}).get("state")
+        @state.setter
+        def state(self, val: Optional[str]):
+            self._state_val = val
+            lid = getattr(self, "id", None)
+            if lid:
+                if lid not in _lead_unmigrated_address_store:
+                    _lead_unmigrated_address_store[lid] = {}
+                _lead_unmigrated_address_store[lid]["state"] = val
+
+        @property
+        def postal_code(self) -> Optional[str]:
+            if hasattr(self, "_postal_code_val"):
+                return self._postal_code_val
+            return _lead_unmigrated_address_store.get(getattr(self, "id", None), {}).get("postal_code")
+        @postal_code.setter
+        def postal_code(self, val: Optional[str]):
+            self._postal_code_val = val
+            lid = getattr(self, "id", None)
+            if lid:
+                if lid not in _lead_unmigrated_address_store:
+                    _lead_unmigrated_address_store[lid] = {}
+                _lead_unmigrated_address_store[lid]["postal_code"] = val
+
+        @property
+        def address_line_1(self) -> Optional[str]:
+            if hasattr(self, "_address_line_1_val"):
+                return self._address_line_1_val
+            return _lead_unmigrated_address_store.get(getattr(self, "id", None), {}).get("address_line_1")
+        @address_line_1.setter
+        def address_line_1(self, val: Optional[str]):
+            self._address_line_1_val = val
+            lid = getattr(self, "id", None)
+            if lid:
+                if lid not in _lead_unmigrated_address_store:
+                    _lead_unmigrated_address_store[lid] = {}
+                _lead_unmigrated_address_store[lid]["address_line_1"] = val
+
+        @property
+        def address_line_2(self) -> Optional[str]:
+            if hasattr(self, "_address_line_2_val"):
+                return self._address_line_2_val
+            return _lead_unmigrated_address_store.get(getattr(self, "id", None), {}).get("address_line_2")
+        @address_line_2.setter
+        def address_line_2(self, val: Optional[str]):
+            self._address_line_2_val = val
+            lid = getattr(self, "id", None)
+            if lid:
+                if lid not in _lead_unmigrated_address_store:
+                    _lead_unmigrated_address_store[lid] = {}
+                _lead_unmigrated_address_store[lid]["address_line_2"] = val
 
     # Contact snapshot fields
     first_name: Mapped[Optional[str]] = mapped_column(

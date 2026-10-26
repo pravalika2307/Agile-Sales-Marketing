@@ -1,4 +1,5 @@
 "use client";
+import { PhysicalMailPreflightModal } from "@/components/campaigns/physical-mail-preflight-modal";
 
 import * as React from "react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -123,6 +124,8 @@ function LeadsPageContent() {
 
   // Selection
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
+  const [isDirectMailModalOpen, setIsDirectMailModalOpen] = React.useState(false);
+  const [directMailCampaign, setDirectMailCampaign] = React.useState<CampaignItem | null>(null);
 
   // UI Drawer & Modals
   const [inspectedLead, setInspectedLead] = React.useState<CRMLead | null>(null);
@@ -154,6 +157,82 @@ function LeadsPageContent() {
   const [isLoadingCampaigns, setIsLoadingCampaigns] = React.useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = React.useState<string>("");
   const [isEnrollingInCampaign, setIsEnrollingInCampaign] = React.useState(false);
+
+  // Selection and Direct Mail Handlers
+  const handleToggleSelectAll = () => {
+    if (selectedIds.size === leadsList.length && leadsList.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(leadsList.map((l) => l.id)));
+    }
+  };
+
+  const handleToggleSelectLead = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleOpenEnrollModal = async () => {
+    setIsCampaignModalOpen(true);
+    setIsLoadingCampaigns(true);
+    try {
+      const res = await fetchCampaigns();
+      setAvailableCampaigns(res.campaigns);
+      if (res.campaigns.length > 0) {
+        setSelectedCampaignId(res.campaigns[0].id);
+      }
+    } catch (err) {
+      console.error("Failed to load campaigns:", err);
+    } finally {
+      setIsLoadingCampaigns(false);
+    }
+  };
+
+  const handleEnrollSelectedLeads = async (launchDirectMail: boolean = false) => {
+    if (!selectedCampaignId || selectedIds.size === 0) return;
+    setIsEnrollingInCampaign(true);
+    try {
+      await enrollContactsInCampaign(selectedCampaignId, Array.from(selectedIds));
+      setSuccessToast(`Successfully enrolled ${selectedIds.size} lead(s) into campaign.`);
+      setIsCampaignModalOpen(false);
+      if (launchDirectMail) {
+        const camp = availableCampaigns.find((c) => c.id === selectedCampaignId) || null;
+        setDirectMailCampaign(camp);
+        setIsDirectMailModalOpen(true);
+      }
+    } catch (err: any) {
+      console.error("Enrollment error:", err);
+      setCreateLeadError(err.message || "Failed to enroll leads in campaign.");
+    } finally {
+      setIsEnrollingInCampaign(false);
+    }
+  };
+
+  const handleLaunchDirectMailFromSelection = async () => {
+    if (selectedIds.size === 0) return;
+    setIsLoadingCampaigns(true);
+    try {
+      const res = await fetchCampaigns();
+      setAvailableCampaigns(res.campaigns);
+      const mailCamp = res.campaigns.find(
+        (c) => c.channels?.includes("physical_mail") || c.steps?.some((s) => s.stepType === "physical_mail")
+      ) || res.campaigns[0];
+      if (mailCamp) {
+        setDirectMailCampaign(mailCamp);
+        setIsDirectMailModalOpen(true);
+      } else {
+        setIsCampaignModalOpen(true);
+      }
+    } catch (err) {
+      console.error("Error launching direct mail:", err);
+    } finally {
+      setIsLoadingCampaigns(false);
+    }
+  };
 
   // CSV Import State
   const [csvFile, setCsvFile] = React.useState<File | null>(null);
@@ -542,11 +621,61 @@ function LeadsPageContent() {
             </Button>
           </div>
 
+                    {/* Bulk Selection Bar */}
+          {selectedIds.size > 0 && (
+            <div className="p-3 bg-slate-900 text-white rounded-xl shadow-lg flex items-center justify-between text-xs animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">{selectedIds.size} lead(s) selected</span>
+                <button
+                  onClick={() => setSelectedIds(new Set())}
+                  className="text-slate-400 hover:text-white underline text-[11px] ml-2"
+                >
+                  Clear selection
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleOpenEnrollModal}
+                  className="text-xs bg-white/10 hover:bg-white/20 text-white border-white/20"
+                >
+                  <UserCheck className="w-3.5 h-3.5 mr-1" />
+                  Add to Campaign
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleLaunchDirectMailFromSelection}
+                  className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
+                >
+                  <Send className="w-3.5 h-3.5 mr-1" />
+                  Direct Mail Test Dispatch
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Leads Table */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
             <Table>
               <TableHeader className="bg-slate-50">
                 <TableRow>
+                  <TableHead className="w-10">
+                    <button
+                      type="button"
+                      onClick={handleToggleSelectAll}
+                      className="text-slate-400 hover:text-slate-700"
+                    >
+                      {selectedIds.size === leadsList.length && leadsList.length > 0 ? (
+                        <CheckSquare className="w-4 h-4 text-agile-red" />
+                      ) : selectedIds.size > 0 ? (
+                        <MinusSquare className="w-4 h-4 text-agile-red" />
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                    </button>
+                  </TableHead>
                   <TableHead className="text-xs font-semibold">Lead</TableHead>
                   <TableHead className="text-xs font-semibold">Email</TableHead>
                   <TableHead className="text-xs font-semibold">Phone</TableHead>
@@ -559,19 +688,32 @@ function LeadsPageContent() {
               <TableBody>
                 {isLoadingLeads ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-xs text-slate-400">
+                    <TableCell colSpan={8} className="text-center py-8 text-xs text-slate-400">
                       Loading leads...
                     </TableCell>
                   </TableRow>
                 ) : leadsList.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-xs text-slate-400">
+                    <TableCell colSpan={8} className="text-center py-8 text-xs text-slate-400">
                       No leads found.
                     </TableCell>
                   </TableRow>
                 ) : (
                   leadsList.map((lead) => (
-                    <TableRow key={lead.id} className="hover:bg-slate-50/50">
+                    <TableRow key={lead.id} className={`hover:bg-slate-50/50 ${selectedIds.has(lead.id) ? "bg-rose-50/30" : ""}`}>
+                      <TableCell className="py-2.5">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSelectLead(lead.id)}
+                          className="text-slate-400 hover:text-slate-700"
+                        >
+                          {selectedIds.has(lead.id) ? (
+                            <CheckSquare className="w-4 h-4 text-agile-red" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
+                        </button>
+                      </TableCell>
                       <TableCell className="py-2.5">
                         <button
                           onClick={() => setInspectedLead(lead)}
@@ -988,6 +1130,81 @@ function LeadsPageContent() {
           )}
         </div>
       </Modal>
+
+            {/* ── MODAL: Add Selected Leads to Campaign ── */}
+      <Modal
+        isOpen={isCampaignModalOpen}
+        onClose={() => setIsCampaignModalOpen(false)}
+        title={`Add ${selectedIds.size || "Selected"} Leads to Campaign`}
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-slate-600">
+            Select an outreach sequence to enroll the selected leads.
+          </p>
+          {isLoadingCampaigns ? (
+            <div className="py-6 text-center text-xs text-slate-400">Loading campaigns...</div>
+          ) : availableCampaigns.length === 0 ? (
+            <p className="text-xs text-slate-500">No campaigns found. Create a campaign first.</p>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Target Campaign</label>
+                <select
+                  value={selectedCampaignId}
+                  onChange={(e) => setSelectedCampaignId(e.target.value)}
+                  className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
+                >
+                  {availableCampaigns.map((camp) => (
+                    <option key={camp.id} value={camp.id}>
+                      {camp.name} ({camp.type}) — {camp.status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+          <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+            <Button variant="outline" size="sm" onClick={() => setIsCampaignModalOpen(false)} className="text-xs">
+              Cancel
+            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleEnrollSelectedLeads(true)}
+                disabled={isEnrollingInCampaign || availableCampaigns.length === 0 || selectedIds.size === 0}
+                className="text-xs border-rose-300 text-rose-700 hover:bg-rose-50"
+              >
+                <Send className="w-3 h-3 mr-1 text-rose-600" />
+                Enroll & Open Direct Mail
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => handleEnrollSelectedLeads(false)}
+                disabled={isEnrollingInCampaign || availableCampaigns.length === 0 || selectedIds.size === 0}
+                className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
+              >
+                {isEnrollingInCampaign ? "Enrolling..." : "Enroll Selected"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── MODAL: Direct Mail Pre-Flight & Test Dispatch ── */}
+      {directMailCampaign && (
+        <PhysicalMailPreflightModal
+          isOpen={isDirectMailModalOpen}
+          onClose={() => setIsDirectMailModalOpen(false)}
+          campaignId={directMailCampaign.id}
+          campaignName={directMailCampaign.name}
+          recipientIds={selectedIds.size > 0 ? Array.from(selectedIds) : undefined}
+          onCompleted={() => {
+            setSelectedIds(new Set());
+          }}
+        />
+      )}
 
       {/* ── Lead Detail Drawer ── */}
       <LeadDetailDrawer

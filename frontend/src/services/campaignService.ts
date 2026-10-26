@@ -21,13 +21,16 @@ export type EnrollmentStatus = "queued" | "in_progress" | "replied" | "bounced" 
 export interface CampaignStepItem {
   id: string;
   stepNumber: number;
-  stepType: "email";
-  subjectTemplate: string | null;
-  bodyTemplate: string | null;
+  stepType: "email" | "voice" | "sms" | "wait" | "condition" | "physical_mail" | string;
+  title?: string;
+  subjectTemplate?: string | null;
+  bodyTemplate?: string | null;
   delayDays: number;
   delayHours: number;
   isActive: boolean;
-  createdAt: string;
+  createdAt?: string;
+  config?: Record<string, any>;
+  conditionType?: string | null;
 }
 
 export interface CampaignContactItem {
@@ -64,7 +67,7 @@ export interface OutreachItem {
 
 export interface WorkflowNode {
   id: string;
-  type: "start" | "email" | "wait" | "voice" | "sms" | "condition";
+  type: "start" | "email" | "wait" | "voice" | "sms" | "condition" | "physical_mail";
   title: string;
   config: Record<string, any>;
   position?: { x: number; y: number };
@@ -135,6 +138,7 @@ export interface CampaignItem {
   steps: CampaignStepItem[];
   contacts: CampaignContactItem[];
   outreaches?: OutreachItem[];
+  channels?: string[];
   // Performance metrics: Strictly zero or neutral when no activity recorded
   metrics: {
     sent: number;
@@ -151,7 +155,7 @@ export interface CampaignCreatePayload {
   name: string;
   type: CampaignType;
   description?: string | null;
-  first_step_channel?: "email" | "sms" | "voice";
+  first_step_channel?: "email" | "sms" | "voice" | "physical_mail";
   scheduleSettings?: Record<string, unknown> | null;
   workflow_config?: WorkflowConfig | null;
 }
@@ -284,7 +288,7 @@ function mapRawStepToItem(raw: RawBackendCampaignStep): CampaignStepItem {
   return {
     id: raw.id,
     stepNumber: raw.step_number,
-    stepType: "email",
+    stepType: (raw.step_type as any) || "email",
     subjectTemplate: raw.subject_template,
     bodyTemplate: raw.body_template,
     delayDays: raw.delay_days ?? 0,
@@ -292,6 +296,86 @@ function mapRawStepToItem(raw: RawBackendCampaignStep): CampaignStepItem {
     isActive: Boolean(raw.is_active),
     createdAt: raw.created_at,
   };
+}
+
+/**
+ * Synthesizes ordered sequence steps from visual workflow graph configuration.
+ * Traverses edges from start node to preserve exact step order, delays, and channel configurations.
+ */
+export function extractStepsFromWorkflow(workflowConfig?: WorkflowConfig | null): CampaignStepItem[] {
+  if (!workflowConfig?.nodes || workflowConfig.nodes.length === 0) {
+    return [];
+  }
+
+  const actionNodes = workflowConfig.nodes.filter((n) => n.type !== "start");
+  if (actionNodes.length === 0) return [];
+
+  // Build edge adjacency: source -> target
+  const edges = workflowConfig.edges || [];
+  const edgeTargetMap = new Map<string, string>();
+  for (const edge of edges) {
+    if (!edgeTargetMap.has(edge.source)) {
+      edgeTargetMap.set(edge.source, edge.target);
+    }
+  }
+
+  // Follow edge chain from start node
+  const startNode = workflowConfig.nodes.find((n) => n.type === "start");
+  const orderedIds: string[] = [];
+  const visited = new Set<string>();
+
+  if (startNode) {
+    let currentId: string | undefined = startNode.id;
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      const nextId: string | undefined = edgeTargetMap.get(currentId);
+      if (nextId && !visited.has(nextId)) {
+        if (nextId !== startNode.id) {
+          orderedIds.push(nextId);
+        }
+        currentId = nextId;
+      } else {
+        break;
+      }
+    }
+  }
+
+  // Add any unvisited action nodes sorted by position.y (fallback for branching or disconnected nodes)
+  for (const n of actionNodes) {
+    if (!visited.has(n.id) && !orderedIds.includes(n.id)) {
+      orderedIds.push(n.id);
+    }
+  }
+
+  const nodeMap = new Map(actionNodes.map((n) => [n.id, n]));
+  const result: CampaignStepItem[] = [];
+  let outreachCounter = 1;
+
+  for (const id of orderedIds) {
+    const node = nodeMap.get(id);
+    if (!node) continue;
+    const cfg = node.config || {};
+    const isOutreach = ["email", "voice", "sms", "physical_mail"].includes(node.type);
+    const stepNumber = isOutreach
+      ? (typeof cfg.step_number === "number" && cfg.step_number > 0 ? cfg.step_number : outreachCounter++)
+      : outreachCounter;
+
+    result.push({
+      id: node.id,
+      stepNumber,
+      stepType: node.type,
+      title: node.title,
+      subjectTemplate: cfg.subject || cfg.subject_template || null,
+      bodyTemplate: cfg.body || cfg.body_template || null,
+      delayDays: node.type === "wait" && (cfg.unit === "days" || !cfg.unit) ? Number(cfg.duration || 0) : Number(cfg.delay_days || 0),
+      delayHours: node.type === "wait" && cfg.unit === "hours" ? Number(cfg.duration || 0) : Number(cfg.delay_hours || 0),
+      isActive: cfg.is_active !== false,
+      config: cfg,
+      conditionType: cfg.condition_type || null,
+    });
+  }
+
+  return result;
 }
 
 function mapRawOutreachToItem(raw: RawBackendOutreach): OutreachItem {
@@ -335,7 +419,10 @@ function mapRawCampaignToItem(
   const simulatedCount = outreaches.filter((o) => o.status === "sent" && o.provider === "mock").length;
   const verifiedDeliveredCount = outreaches.filter((o) => o.status === "sent" && !!o.firstDeliveredAt).length;
   const contactsCount = raw.contacts_count ?? contacts.length;
-  const stepsCount = raw.steps_count ?? steps.length;
+
+  const workflowSteps = extractStepsFromWorkflow(raw.workflow_config);
+  const effectiveSteps = workflowSteps.length > 0 ? workflowSteps : steps;
+  const stepsCount = effectiveSteps.length;
 
   return {
     id: raw.id,
@@ -351,7 +438,7 @@ function mapRawCampaignToItem(
     currentStepNumber: 1,
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,
-    steps,
+    steps: effectiveSteps,
     contacts,
     outreaches,
     metrics: {
@@ -777,6 +864,58 @@ export async function deleteCampaign(campaignId: string): Promise<void> {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `Failed to delete campaign (HTTP ${res.status})`);
   }
+}
+
+export interface FilteredChannelReason {
+  channel: string;
+  reason: string;
+}
+
+export interface AICampaignDraftRequest {
+  description: string;
+  target_audience: string;
+  objective: string;
+  channels?: string[];
+  campaign_duration_days?: number;
+  followup_interval_days?: number;
+  campaign_type?: CampaignType;
+  tone?: string;
+  save_as_draft?: boolean;
+}
+
+export interface AICampaignDraftResponse {
+  campaign_id: string | null;
+  campaign_name: string;
+  objective: string;
+  target_audience: string;
+  summary: string;
+  channels_used: string[];
+  channels_filtered_out: FilteredChannelReason[];
+  workflow_config: WorkflowConfig;
+  validation: WorkflowValidationResult;
+  model_used: string;
+  ai_provider: string;
+  is_mock: boolean;
+}
+
+/**
+ * Generate an end-to-end campaign draft with AI from a short natural-language description.
+ */
+export async function generateAICampaignDraft(
+  payload: AICampaignDraftRequest
+): Promise<AICampaignDraftResponse> {
+  const res = await fetch("/api/campaigns/generate-draft", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to generate campaign draft (HTTP ${res.status})`);
+  }
+
+  return res.json();
 }
 
 

@@ -311,3 +311,31 @@ def test_retell_client_check_connection_auth_failure():
     assert status.connected is False
     assert status.error == "Authentication failed"
     assert "authentication rejected" in status.message
+
+
+def test_retell_client_list_phone_numbers():
+    """Verify list_phone_numbers returns registered phone numbers safely."""
+    sample_phones = {
+        "items": [
+            {
+                "phone_number": "+16416818482",
+                "nickname": "agile-dev",
+                "phone_number_pretty": "+16416818482",
+            }
+        ]
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert "/v2/list-phone-numbers" in str(request.url)
+        return httpx.Response(200, json=sample_phones)
+
+    transport = httpx.MockTransport(handler)
+    mock_http = httpx.Client(transport=transport)
+    client = RetellClient(api_key="valid_key", http_client=mock_http)
+
+    phones = client.list_phone_numbers()
+    assert len(phones) == 1
+    assert phones[0]["phone_number"] == "+16416818482"
+    assert phones[0]["nickname"] == "agile-dev"
+

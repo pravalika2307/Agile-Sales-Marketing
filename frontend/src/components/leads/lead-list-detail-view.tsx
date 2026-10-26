@@ -1,4 +1,5 @@
 "use client";
+import { PhysicalMailPreflightModal } from "@/components/campaigns/physical-mail-preflight-modal";
 
 import * as React from "react";
 import Link from "next/link";
@@ -87,6 +88,8 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
 
   // Selection
   const [selectedMemberIds, setSelectedMemberIds] = React.useState<Set<string>>(new Set());
+  const [isDirectMailModalOpen, setIsDirectMailModalOpen] = React.useState(false);
+  const [directMailCampaign, setDirectMailCampaign] = React.useState<CampaignItem | null>(null);
 
   // Notifications
   const [successBanner, setSuccessBanner] = React.useState<string | null>(null);
@@ -230,6 +233,28 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
       setErrorBanner(err instanceof Error ? err.message : "Failed to remove member.");
     } finally {
       setIsRemovingMember(false);
+    }
+  };
+
+  const handleLaunchDirectMailFromList = async () => {
+    if (selectedMemberIds.size === 0) return;
+    setIsLoadingCampaigns(true);
+    try {
+      const res = await fetchCampaigns();
+      setAvailableCampaigns(res.campaigns);
+      const mailCamp = res.campaigns.find(
+        (c) => c.channels?.includes("physical_mail") || c.steps?.some((s) => s.stepType === "physical_mail")
+      ) || res.campaigns[0];
+      if (mailCamp) {
+        setDirectMailCampaign(mailCamp);
+        setIsDirectMailModalOpen(true);
+      } else {
+        setIsAddSelectedModalOpen(true);
+      }
+    } catch (err) {
+      console.error("Error launching direct mail from list:", err);
+    } finally {
+      setIsLoadingCampaigns(false);
     }
   };
 
@@ -786,7 +811,18 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
                 className="text-xs bg-white text-slate-900 hover:bg-slate-100 border-none h-8 font-medium inline-flex items-center gap-1.5"
               >
                 <Send className="w-3.5 h-3.5 text-agile-red" />
-                <span>Add Selected to Campaign</span>
+                <span>Add to Campaign</span>
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLaunchDirectMailFromList}
+                className="text-xs bg-rose-600 hover:bg-rose-700 text-white border-none h-8 font-medium inline-flex items-center gap-1.5"
+                title="Direct Mail Pre-Flight & Test Dispatch"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Direct Mail</span>
               </Button>
 
               <Button
@@ -1056,7 +1092,7 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+          <div className="flex justify-between items-center pt-2 border-t border-slate-100">
             <Button
               variant="outline"
               size="sm"
@@ -1065,15 +1101,34 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
             >
               Cancel
             </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleEnrollSelectedToCampaign}
-              disabled={isEnrollingSelected || availableCampaigns.length === 0}
-              className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
-            >
-              {isEnrollingSelected ? "Enrolling..." : "Enroll Selected"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  const camp = availableCampaigns.find((c) => c.id === selectedEnrollCampaignId);
+                  await handleEnrollSelectedToCampaign();
+                  if (camp) {
+                    setDirectMailCampaign(camp);
+                    setIsDirectMailModalOpen(true);
+                  }
+                }}
+                disabled={isEnrollingSelected || availableCampaigns.length === 0}
+                className="text-xs border-rose-300 text-rose-700 hover:bg-rose-50"
+              >
+                <Send className="w-3 h-3 mr-1 text-rose-600" />
+                Enroll & Open Direct Mail
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleEnrollSelectedToCampaign}
+                disabled={isEnrollingSelected || availableCampaigns.length === 0}
+                className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
+              >
+                {isEnrollingSelected ? "Enrolling..." : "Enroll Selected"}
+              </Button>
+            </div>
           </div>
         </div>
       </Modal>
@@ -1119,6 +1174,27 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
           </div>
         </div>
       </Modal>
+
+      {/* Direct Mail Preflight Modal */}
+      {directMailCampaign && (
+        <PhysicalMailPreflightModal
+          isOpen={isDirectMailModalOpen}
+          onClose={() => setIsDirectMailModalOpen(false)}
+          campaignId={directMailCampaign.id}
+          campaignName={directMailCampaign.name}
+          recipientIds={
+            selectedMemberIds.size > 0
+              ? members
+                  .filter((m) => selectedMemberIds.has(m.id))
+                  .map((m) => m.lead_id)
+                  .filter((id): id is string => Boolean(id))
+              : undefined
+          }
+          onCompleted={() => {
+            setSelectedMemberIds(new Set());
+          }}
+        />
+      )}
     </div>
   );
 };

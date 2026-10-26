@@ -14,6 +14,9 @@ export interface ChannelCapability {
   limits: Record<string, any>;
   allocated_quota?: number | null;
   current_usage: number;
+  provider_configured?: boolean;
+  provider_status_message?: string | null;
+  is_provider_ready?: boolean;
 }
 
 export interface ChannelListResponse {

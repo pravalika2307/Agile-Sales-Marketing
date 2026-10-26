@@ -437,9 +437,17 @@ def send_outreach(
             outreach_id=outreach_id,
             raise_on_failure=raise_on_failure,
         )
+    elif outreach.channel == "physical_mail":
+        from app.services.physical_mail.service import send_single_physical_mail_outreach
+        return send_single_physical_mail_outreach(
+            db=db,
+            org_id=org_id,
+            outreach_id=outreach_id,
+            raise_on_failure=raise_on_failure,
+        )
     elif outreach.channel != "email":
         raise UnsupportedChannelError(
-            f"Cannot send outreach with channel '{outreach.channel}'. Only 'email', 'sms', and 'voice' are supported."
+            f"Cannot send outreach with channel '{outreach.channel}'. Only 'email', 'sms', 'voice', and 'physical_mail' are supported."
         )
 
     # 4. Idempotency & duplicate send protection

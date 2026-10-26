@@ -17,7 +17,11 @@ export interface ColumnMapping {
   phone: number;
   job_title: number;
   industry: number;
+  address_line_1: number;
+  address_line_2: number;
   city: number;
+  state: number;
+  postal_code: number;
   country: number;
 }
 
@@ -29,7 +33,11 @@ export const DEFAULT_COLUMN_MAPPING: ColumnMapping = {
   phone: -1,
   job_title: -1,
   industry: -1,
+  address_line_1: -1,
+  address_line_2: -1,
   city: -1,
+  state: -1,
+  postal_code: -1,
   country: -1,
 };
 
@@ -143,8 +151,16 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
       mapping.job_title = idx;
     } else if (mapping.industry === -1 && (norm === "industry" || norm === "sector" || norm === "vertical")) {
       mapping.industry = idx;
-    } else if (mapping.city === -1 && (norm === "city" || norm === "location" || norm === "metro")) {
+    } else if (mapping.address_line_1 === -1 && (norm === "addressline1" || norm === "address1" || norm === "streetaddress" || norm === "street" || norm === "address" || norm === "addr1" || norm === "addr")) {
+      mapping.address_line_1 = idx;
+    } else if (mapping.address_line_2 === -1 && (norm === "addressline2" || norm === "address2" || norm === "suite" || norm === "apt" || norm === "unit" || norm === "bldg" || norm === "building" || norm === "addr2")) {
+      mapping.address_line_2 = idx;
+    } else if (mapping.city === -1 && (norm === "city" || norm === "location" || norm === "metro" || norm === "town")) {
       mapping.city = idx;
+    } else if (mapping.state === -1 && (norm === "state" || norm === "province" || norm === "region" || norm === "st")) {
+      mapping.state = idx;
+    } else if (mapping.postal_code === -1 && (norm === "postalcode" || norm === "zip" || norm === "zipcode" || norm === "postcode" || norm === "postal" || norm === "zip4")) {
+      mapping.postal_code = idx;
     } else if (mapping.country === -1 && (norm === "country" || norm === "nation")) {
       mapping.country = idx;
     }

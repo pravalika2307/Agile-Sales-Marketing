@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+import uuid
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -66,3 +67,36 @@ class VoiceStatusResponse(BaseModel):
     agent_count: Optional[int] = None
     error: Optional[str] = None
     message: str
+
+
+class SimulateMockCallCompletionRequest(BaseModel):
+    """Request payload to deterministically complete a simulated voice call."""
+    outreach_id: Optional[uuid.UUID] = Field(None, description="Outreach ID of in-flight mock call")
+    call_id: Optional[str] = Field(None, description="Mock call ID beginning with 'call_mock_'")
+    outcome: str = Field(
+        default="INTERESTED",
+        description="Simulated outcome: INTERESTED, QUALIFIED, MEETING_REQUESTED, NOT_INTERESTED, NO_ANSWER, UNAVAILABLE, DO_NOT_CONTACT",
+    )
+    meeting_requested: bool = False
+    callback_requested: bool = False
+    qualification_score: int = 85
+    call_summary: Optional[str] = None
+    disconnection_reason: Optional[str] = None
+
+
+class SimulateMockCallCompletionResponse(BaseModel):
+    """Response returned upon mock voice call completion."""
+    status: str
+    call_id: str
+    outreach_id: Optional[str] = None
+    call_status: str
+    outreach_status: str
+    call_outcome: str
+    simulated: bool = True
+    duplicate: bool = False
+    followup_email_created: bool = False
+    followup_email_id: Optional[str] = None
+    followup_status: Optional[str] = None
+    followup_reason: Optional[str] = None
+    message: str
+

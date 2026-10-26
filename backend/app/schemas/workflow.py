@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-SUPPORTED_WORKFLOW_NODE_TYPES = {"start", "email", "wait", "voice", "sms", "condition"}
+SUPPORTED_WORKFLOW_NODE_TYPES = {"start", "email", "wait", "voice", "sms", "condition", "physical_mail"}
 KNOWN_TEMPLATE_VARIABLES = {
     "contact.first_name",
     "contact.last_name",
@@ -16,6 +16,24 @@ KNOWN_TEMPLATE_VARIABLES = {
     "contact.company_name",
     "contact.job_title",
     "contact.phone",
+    "contact.address_line_1",
+    "contact.address_line_2",
+    "contact.city",
+    "contact.state",
+    "contact.postal_code",
+    "contact.country",
+    "lead.address_line_1",
+    "lead.address_line_2",
+    "lead.city",
+    "lead.state",
+    "lead.postal_code",
+    "lead.country",
+    "address_line_1",
+    "address_line_2",
+    "city",
+    "state",
+    "postal_code",
+    "country",
     "first_name",
     "last_name",
     "full_name",
@@ -78,7 +96,7 @@ class WorkflowValidationResult(BaseModel):
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     supported_step_types: List[str] = Field(
-        default_factory=lambda: ["email", "sms", "wait", "voice", "condition"]
+        default_factory=lambda: ["email", "sms", "wait", "voice", "condition", "physical_mail"]
     )
     unavailable_step_types: List[str] = Field(
         default_factory=lambda: ["linkedin", "social_publish"]

@@ -34,11 +34,22 @@ from app.models.call_record import CallRecord
 from app.models.lead import Lead
 from app.models.tenant import Organization, User
 from app.schemas.call_record import CallRecordResponse, RetellWebhookResponse
+import logging
+
+logger = logging.getLogger(__name__)
+
 from app.schemas.voice import (
+    SimulateMockCallCompletionRequest,
+    SimulateMockCallCompletionResponse,
     VoiceAgentDetailResponse,
     VoiceAgentsResponse,
     VoiceAgentSummaryResponse,
     VoiceStatusResponse,
+)
+from app.services.outreach.service import OutreachNotFoundError
+from app.services.voice.service import (
+    VoiceServiceError,
+    complete_simulated_voice_call,
 )
 from app.services.outreach.voice_followup import (
     UnresolvedOrganizationError,
@@ -187,6 +198,48 @@ async def replay_analyzed_call_endpoint(
         followup_email_id=result.get("followup_email_id"),
         duplicate=result.get("duplicate", False),
     )
+
+
+@router.post(
+    "/simulate-mock-completion",
+    response_model=SimulateMockCallCompletionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Simulate deterministic completion for in-flight mock voice call",
+    description=(
+        "Deterministically transitions an in-flight simulated mock voice call to terminal status "
+        "('sent' or 'failed'), stores structured outcome, and exercises Step 2 email follow-up "
+        "without making live external provider requests. Strictly authenticated per tenant organization."
+    ),
+)
+async def simulate_mock_completion_endpoint(
+    payload: SimulateMockCallCompletionRequest,
+    current_org: Organization = Depends(get_current_organization),
+    db: Session = Depends(get_db),
+) -> SimulateMockCallCompletionResponse:
+    """Deterministic simulation completion endpoint for local and test outbound campaigns."""
+    try:
+        return complete_simulated_voice_call(
+            db=db,
+            org_id=current_org.id,
+            outreach_id=payload.outreach_id,
+            call_id=payload.call_id,
+            outcome=payload.outcome,
+            meeting_requested=payload.meeting_requested,
+            callback_requested=payload.callback_requested,
+            qualification_score=payload.qualification_score,
+            call_summary=payload.call_summary,
+            disconnection_reason=payload.disconnection_reason,
+        )
+    except OutreachNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except VoiceServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Error completing simulated voice call: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to complete simulated voice call: {exc}",
+        )
 
 
 @router.get(

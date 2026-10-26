@@ -98,3 +98,63 @@ export async function getVoiceAgents(): Promise<VoiceAgentsResponse> {
     throw err;
   }
 }
+
+export interface SimulateMockCallCompletionRequest {
+  outreach_id?: string;
+  call_id?: string;
+  outcome?: string;
+  meeting_requested?: boolean;
+  callback_requested?: boolean;
+  qualification_score?: number;
+  call_summary?: string;
+  disconnection_reason?: string;
+}
+
+export interface SimulateMockCallCompletionResponse {
+  status: string;
+  call_id: string;
+  outreach_id?: string | null;
+  call_status: string;
+  outreach_status: string;
+  call_outcome: string;
+  simulated: boolean;
+  duplicate: boolean;
+  followup_email_created: boolean;
+  followup_email_id?: string | null;
+  followup_status?: string | null;
+  followup_reason?: string | null;
+  message: string;
+}
+
+/**
+ * Deterministically complete a simulated mock voice call in test mode.
+ */
+export async function simulateMockCallCompletion(
+  payload: SimulateMockCallCompletionRequest
+): Promise<SimulateMockCallCompletionResponse> {
+  try {
+    const resp = await fetch("/api/voice/simulate-mock-completion", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(
+        errData.detail || errData.error || `Failed to complete simulated call: HTTP ${resp.status}`
+      );
+    }
+
+    return await resp.json();
+  } catch (err: any) {
+    if (err.name === "TimeoutError") {
+      throw new Error("Simulate call completion request timed out after 15s.");
+    }
+    throw err;
+  }
+}

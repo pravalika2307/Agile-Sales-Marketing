@@ -136,9 +136,9 @@ def get_campaign_step(
     org_id: uuid.UUID,
     campaign_id: uuid.UUID,
     step_id: uuid.UUID,
-) -> Optional[CampaignStep]:
+) -> Optional[Any]:
     """Retrieves a specific campaign step strictly scoped to the tenant organization."""
-    return (
+    db_step = (
         db.query(CampaignStep)
         .filter(
             CampaignStep.id == step_id,
@@ -147,6 +147,20 @@ def get_campaign_step(
         )
         .first()
     )
+    if db_step:
+        return db_step
+
+    campaign = (
+        db.query(Campaign)
+        .filter(Campaign.id == campaign_id, Campaign.organization_id == org_id)
+        .first()
+    )
+    if not campaign:
+        return None
+
+    from app.services.workflow_service import get_campaign_ordered_steps
+    steps = get_campaign_ordered_steps(db, campaign)
+    return next((s for s in steps if s.id == step_id), None)
 
 
 def update_campaign_step(

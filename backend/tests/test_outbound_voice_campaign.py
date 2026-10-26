@@ -49,6 +49,10 @@ from app.services.campaign_execution.rules import (
     evaluate_subsequent_step_eligibility,
 )
 from app.services.campaign_scheduler import CampaignSchedulerService
+from app.services.organization_config import (
+    clear_organization_booking_registry,
+    register_organization_booking_url,
+)
 from app.services.outreach.base import EmailMessage, EmailSendResult, MockEmailProvider
 from app.services.outreach.service import (
     AlreadySentError,
@@ -851,3 +855,417 @@ def test_live_call_safety_controls(db):
     assert result["simulated"] is True
     assert result["call_id"].startswith("call_mock_")
     assert result["call_status"] == "registered"
+
+
+# 19. Opt-Out and Do-Not-Call Suppression
+def test_opt_out_suppression(db):
+    """Voice outreach is blocked and cancelled when prospect is opted out or marked DNC."""
+    env = create_tenant_environment(db, "Suppression")
+
+    # 1. Contact with lead_status = 'opted_out'
+    suppressed_contact = Contact(
+        id=uuid.uuid4(),
+        organization_id=env["org"].id,
+        company_id=env["company"].id,
+        first_name="Clark",
+        last_name="Kent",
+        email="clark@dailyplanet.com",
+        phone="+14155554321",
+        lead_status="opted_out",
+    )
+    db.add(suppressed_contact)
+    db.commit()
+
+    enrollment = CampaignContact(
+        id=uuid.uuid4(),
+        campaign_id=env["campaign"].id,
+        contact_id=suppressed_contact.id,
+        enrollment_status="in_progress",
+        current_step=1,
+    )
+    db.add(enrollment)
+    db.commit()
+
+    outreach = Outreach(
+        id=uuid.uuid4(),
+        organization_id=env["org"].id,
+        campaign_id=env["campaign"].id,
+        contact_id=suppressed_contact.id,
+        campaign_contact_id=enrollment.id,
+        channel="voice",
+        status="draft",
+        recipient=suppressed_contact.phone,
+    )
+    db.add(outreach)
+    db.commit()
+
+    with pytest.raises(SuppressedRecipientError) as exc_info:
+        send_outreach(
+            db=db,
+            org_id=env["org"].id,
+            outreach_id=outreach.id,
+        )
+    assert "opted-out" in str(exc_info.value).lower()
+    db.refresh(outreach)
+    assert outreach.status == "cancelled"
+
+
+# 20. Complete 18-Step Voice Campaign Lifecycle Scenario
+def test_complete_voice_campaign_lifecycle_scenario(db):
+    """
+    Validates the complete 18-step outbound voice campaign lifecycle using mocked provider interactions.
+    Matches the user-specified integration test scenario step-by-step.
+    """
+    # Step 1: Create synthetic organization, campaign, lead/contact, and campaign enrollment
+    env = create_tenant_environment(db, "E2EScenario")
+    configured_booking_url = "https://cal.com/e2e-scenario/30min"
+    register_organization_booking_url(env["org"].id, configured_booking_url)
+
+    try:
+        # Step 2: Configure the campaign's first step as an outbound Retell voice call
+        voice_outreach = create_voice_outreach_item(db, env, status="draft")
+        assert voice_outreach.channel == "voice"
+        assert voice_outreach.status == "draft"
+
+        # Step 3 & 4: Dispatch the voice outreach through the actual campaign execution path (send_outreach)
+        # and verify mock Retell call-creation succeeds
+        dispatched_outreach = send_outreach(
+            db=db,
+            org_id=env["org"].id,
+            outreach_id=voice_outreach.id,
+        )
+
+        # Step 5: Verify that the provider call ID and associated campaign records are persisted correctly
+        db.refresh(voice_outreach)
+        assert dispatched_outreach.id == voice_outreach.id
+        assert voice_outreach.status == "sending"
+        assert voice_outreach.provider_message_id is not None
+        assert voice_outreach.provider_message_id.startswith("call_mock_")
+        provider_call_id = voice_outreach.provider_message_id
+
+        assert voice_outreach.call_record_id is not None
+        call_rec = db.get(CallRecord, voice_outreach.call_record_id)
+        assert call_rec is not None
+        assert call_rec.call_id == provider_call_id
+        assert call_rec.organization_id == env["org"].id
+        assert call_rec.campaign_id == env["campaign"].id
+        assert call_rec.contact_id == env["contact"].id
+
+        # Step 6: Simulate call-started and call-ended webhooks
+        mock_email_provider = RecordingMockEmailProvider()
+        followup_service = VoiceFollowUpService(db=db, email_provider=mock_email_provider)
+
+        # 6a. call-started
+        start_payload = {
+            "event": "call_started",
+            "call_id": provider_call_id,
+            "start_timestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+            "from_number": "+14155550100",
+            "to_number": env["contact"].phone,
+            "metadata": {
+                "organization_id": str(env["org"].id),
+                "outreach_id": str(voice_outreach.id),
+            },
+        }
+        followup_service.handle_call_started(start_payload)
+        db.refresh(call_rec)
+        db.refresh(voice_outreach)
+        assert call_rec.call_status == "in_progress"
+        assert voice_outreach.status == "sending"
+
+        # 6b. call-ended
+        ended_payload = {
+            "event": "call_ended",
+            "call_id": provider_call_id,
+            "duration_ms": 52000,
+            "disconnection_reason": "agent_hangup",
+            "metadata": {
+                "organization_id": str(env["org"].id),
+                "outreach_id": str(voice_outreach.id),
+            },
+        }
+        followup_service.handle_call_ended(ended_payload)
+        db.refresh(call_rec)
+        assert call_rec.call_status == "ended"
+        assert call_rec.duration_ms == 52000
+
+        # Step 7: Simulate call-analyzed indicating prospect is interested and requests more info by email
+        analyzed_payload = {
+            "event": "call_analyzed",
+            "call_id": provider_call_id,
+            "call": {
+                "call_id": provider_call_id,
+                "call_analysis": {
+                    "call_summary": "Prospect is interested and requested meeting booking details by email.",
+                    "call_outcome": "INTERESTED",
+                },
+                "collected_dynamic_variables": {
+                    "interest_level": "high",
+                },
+                "metadata": {
+                    "organization_id": str(env["org"].id),
+                    "outreach_id": str(voice_outreach.id),
+                },
+            },
+        }
+        analysis_result = followup_service.process_call_analyzed(analyzed_payload)
+
+        # Step 8: Verify that the call analysis is persisted
+        db.refresh(call_rec)
+        assert call_rec.call_status == "analyzed"
+        assert call_rec.call_outcome == "INTERESTED"
+        assert "interested" in (call_rec.summary or "").lower()
+
+        # Step 9: Verify that the voice step transitions to the appropriate completed state (sent)
+        db.refresh(voice_outreach)
+        assert voice_outreach.status == "sent"
+        assert voice_outreach.sent_at is not None
+
+        # Step 10: Verify that exactly one follow-up email is created or dispatched through email service
+        assert analysis_result["status"] == "success"
+        assert analysis_result["email_sent"] is True
+        assert len(mock_email_provider.sent_messages) == 1
+
+        # Step 11: Verify that the email contains the configured meeting-booking URL
+        dispatched_email_msg = mock_email_provider.sent_messages[0]
+        assert configured_booking_url in dispatched_email_msg.body
+
+        # Step 12: Verify that the email step transitions to the correct state
+        email_outreach_id = uuid.UUID(analysis_result["followup_email_id"])
+        email_outreach = db.get(Outreach, email_outreach_id)
+        assert email_outreach is not None
+        assert email_outreach.channel == "email"
+        assert email_outreach.status == "sent"
+        assert email_outreach.campaign_id == env["campaign"].id
+        assert email_outreach.call_record_id == call_rec.id
+
+        # Step 13: Verify that the next workflow step follows its configured delay and conditions
+        next_step = CampaignStep(
+            id=uuid.uuid4(),
+            organization_id=env["org"].id,
+            campaign_id=env["campaign"].id,
+            step_number=2,
+            step_type="email",
+            subject_template="Step 2 Follow-Up",
+            body_template="Checking in on Step 2",
+            delay_days=2,
+            delay_hours=0,
+        )
+        # At day 1 -> skipped (delay not elapsed)
+        eval_day1 = evaluate_subsequent_step_eligibility(
+            campaign=env["campaign"],
+            campaign_contact=env["enrollment"],
+            contact=env["contact"],
+            next_step=next_step,
+            last_sent_outreach=voice_outreach,
+            existing_outreaches_for_next_step=[],
+            now=voice_outreach.sent_at + timedelta(days=1),
+            required_condition="interested",
+        )
+        assert eval_day1.result == EvaluationResult.SKIPPED
+        assert "delay not elapsed" in eval_day1.reason.lower()
+
+        # At day 2 -> eligible
+        eval_day2 = evaluate_subsequent_step_eligibility(
+            campaign=env["campaign"],
+            campaign_contact=env["enrollment"],
+            contact=env["contact"],
+            next_step=next_step,
+            last_sent_outreach=voice_outreach,
+            existing_outreaches_for_next_step=[],
+            now=voice_outreach.sent_at + timedelta(days=2, seconds=5),
+            required_condition="interested",
+        )
+        assert eval_day2.result == EvaluationResult.ELIGIBLE
+
+        # Step 14: Replay the call-analyzed webhook and verify that no duplicate email is sent
+        replay_result = followup_service.process_call_analyzed(analyzed_payload)
+        assert replay_result["duplicate"] is True
+        assert len(mock_email_provider.sent_messages) == 1
+
+        # Step 15: Deliver call-ended after call-analyzed and verify that the analyzed state is preserved
+        late_ended_payload = {
+            "event": "call_ended",
+            "call_id": provider_call_id,
+            "duration_ms": 53000,
+            "metadata": {"organization_id": str(env["org"].id)},
+        }
+        followup_service.handle_call_ended(late_ended_payload)
+        db.refresh(call_rec)
+        assert call_rec.call_status == "analyzed"
+
+        # Step 16: Simulate a failed email and verify that retrying the email does not place another call
+        failing_email_outreach = Outreach(
+            id=uuid.uuid4(),
+            organization_id=env["org"].id,
+            campaign_id=env["campaign"].id,
+            contact_id=env["contact"].id,
+            campaign_contact_id=env["enrollment"].id,
+            channel="email",
+            status="failed",
+            call_record_id=call_rec.id,
+            recipient=env["contact"].email,
+            subject="Test Failed Email",
+            body="Test Failed Body",
+        )
+        db.add(failing_email_outreach)
+        db.commit()
+
+        # Retry the email with working provider
+        retry_working_provider = RecordingMockEmailProvider()
+        retried_record = retry_outreach(
+            db=db,
+            org_id=env["org"].id,
+            outreach_id=failing_email_outreach.id,
+            provider=retry_working_provider,
+        )
+        assert retried_record.status == "sent"
+        assert len(retry_working_provider.sent_messages) == 1
+        # Confirm original voice outreach status remains sent and call was not redialed
+        db.refresh(voice_outreach)
+        assert voice_outreach.status == "sent"
+
+        # Step 17: Test negative, unclear, no-answer, and failed-call outcomes
+        # 17a: Negative outcome (NOT_INTERESTED) -> skips email
+        neg_outreach = create_voice_outreach_item(db, env, status="sending", phone="+14155550991")
+        neg_call_rec = CallRecord(
+            organization_id=env["org"].id,
+            campaign_id=env["campaign"].id,
+            contact_id=env["contact"].id,
+            call_id="call_mock_neg_123",
+            agent_id="agent_test_sdr_123",
+            direction="outbound",
+            call_status="in_progress",
+        )
+        db.add(neg_call_rec)
+        db.commit()
+        neg_outreach.call_record_id = neg_call_rec.id
+        neg_outreach.provider_message_id = neg_call_rec.call_id
+        db.commit()
+
+        neg_service = VoiceFollowUpService(db=db, email_provider=RecordingMockEmailProvider())
+        neg_res = neg_service.process_call_analyzed({
+            "event": "call_analyzed",
+            "call_id": neg_call_rec.call_id,
+            "call": {
+                "call_id": neg_call_rec.call_id,
+                "call_analysis": {"call_outcome": "NOT_INTERESTED"},
+                "metadata": {"organization_id": str(env["org"].id), "outreach_id": str(neg_outreach.id)},
+            },
+        })
+        assert neg_res["email_sent"] is False
+        assert neg_res["followup_status"] == "skipped"
+
+        # 17b: Unclear outcome -> skips email
+        unclear_outreach = create_voice_outreach_item(db, env, status="sending", phone="+14155550992")
+        unclear_call_rec = CallRecord(
+            organization_id=env["org"].id,
+            campaign_id=env["campaign"].id,
+            contact_id=env["contact"].id,
+            call_id="call_mock_unclear_123",
+            agent_id="agent_test_sdr_123",
+            direction="outbound",
+            call_status="in_progress",
+        )
+        db.add(unclear_call_rec)
+        db.commit()
+        unclear_outreach.call_record_id = unclear_call_rec.id
+        unclear_outreach.provider_message_id = unclear_call_rec.call_id
+        db.commit()
+
+        unclear_res = neg_service.process_call_analyzed({
+            "event": "call_analyzed",
+            "call_id": unclear_call_rec.call_id,
+            "call": {
+                "call_id": unclear_call_rec.call_id,
+                "call_analysis": {"call_outcome": "UNCLEAR"},
+                "metadata": {"organization_id": str(env["org"].id), "outreach_id": str(unclear_outreach.id)},
+            },
+        })
+        assert unclear_res["email_sent"] is False
+        assert unclear_res["followup_status"] == "skipped"
+
+        # 17c: No-answer outcome -> marks voice outreach failed
+        no_ans_outreach = create_voice_outreach_item(db, env, status="sending", phone="+14155550993")
+        no_ans_outreach.provider_message_id = "call_mock_no_ans_123"
+        db.commit()
+        neg_service.handle_call_ended({
+            "event": "call_ended",
+            "call_id": no_ans_outreach.provider_message_id,
+            "disconnection_reason": "no_answer",
+            "metadata": {"organization_id": str(env["org"].id), "outreach_id": str(no_ans_outreach.id)},
+        })
+        db.refresh(no_ans_outreach)
+        assert no_ans_outreach.status == "failed"
+
+        # 17d: Failed-call outcome -> marks voice outreach failed
+        failed_outreach = create_voice_outreach_item(db, env, status="sending", phone="+14155550994")
+        failed_outreach.provider_message_id = "call_mock_dial_fail_123"
+        db.commit()
+        neg_service.handle_call_ended({
+            "event": "call_ended",
+            "call_id": failed_outreach.provider_message_id,
+            "disconnection_reason": "dial_failed",
+            "metadata": {"organization_id": str(env["org"].id), "outreach_id": str(failed_outreach.id)},
+        })
+        db.refresh(failed_outreach)
+        assert failed_outreach.status == "failed"
+
+        # Step 18: Verify tenant isolation and opt-out suppression
+        # 18a. Tenant isolation
+        other_env = create_tenant_environment(db, "OtherTenantLifecycle")
+        isolated_outreach = create_voice_outreach_item(db, env)
+        with pytest.raises(OutreachNotFoundError):
+            send_outreach(
+                db=db,
+                org_id=other_env["org"].id,  # Wrong tenant
+                outreach_id=isolated_outreach.id,
+            )
+
+        # 18b. Opt-out suppression
+        suppressed_contact = Contact(
+            id=uuid.uuid4(),
+            organization_id=env["org"].id,
+            company_id=env["company"].id,
+            first_name="Opted",
+            last_name="Out",
+            email="optout@wayne.com",
+            phone="+14155558888",
+            lead_status="opted_out",  # Suppressed!
+        )
+        db.add(suppressed_contact)
+        db.commit()
+        suppressed_enrollment = CampaignContact(
+            id=uuid.uuid4(),
+            campaign_id=env["campaign"].id,
+            contact_id=suppressed_contact.id,
+            enrollment_status="in_progress",
+            current_step=1,
+        )
+        db.add(suppressed_enrollment)
+        db.commit()
+        suppressed_outreach = Outreach(
+            id=uuid.uuid4(),
+            organization_id=env["org"].id,
+            campaign_id=env["campaign"].id,
+            contact_id=suppressed_contact.id,
+            campaign_contact_id=suppressed_enrollment.id,
+            channel="voice",
+            status="draft",
+            recipient=suppressed_contact.phone,
+        )
+        db.add(suppressed_outreach)
+        db.commit()
+
+        with pytest.raises(SuppressedRecipientError) as exc_info:
+            send_outreach(
+                db=db,
+                org_id=env["org"].id,
+                outreach_id=suppressed_outreach.id,
+            )
+        assert "opted-out" in str(exc_info.value).lower()
+        db.refresh(suppressed_outreach)
+        assert suppressed_outreach.status == "cancelled"
+
+    finally:
+        clear_organization_booking_registry()

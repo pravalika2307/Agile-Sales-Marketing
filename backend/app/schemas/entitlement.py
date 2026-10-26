@@ -47,6 +47,9 @@ class ChannelCapabilityResponse(BaseModel):
     limits: Dict[str, Any] = Field(default_factory=dict, description="Operational limits, e.g. char limits, segment limits")
     allocated_quota: Optional[int] = Field(None, description="Monthly allocated message/call quota if configured")
     current_usage: int = Field(0, description="Current consumption count in billing cycle")
+    provider_configured: bool = Field(False, description="Whether the underlying provider credentials or API connections are configured")
+    provider_status_message: Optional[str] = Field(None, description="Diagnostic provider connection status (e.g. Test Sandbox Active, Setup Required)")
+    is_provider_ready: bool = Field(False, description="Whether this channel can currently be dispatched in test or live mode")
 
 
 class ChannelListResponse(BaseModel):

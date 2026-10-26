@@ -24,6 +24,7 @@ from app.services.voice.service import (
     check_voice_consent,
     initiate_outbound_call,
     send_voice_outreach,
+    complete_simulated_voice_call,
     validate_recipient_phone,
 )
 
@@ -42,6 +43,7 @@ __all__ = [
     "RetellAgentDetail",
     "RetellConnectionStatus",
     "send_voice_outreach",
+    "complete_simulated_voice_call",
     "initiate_outbound_call",
     "validate_recipient_phone",
     "check_voice_consent",

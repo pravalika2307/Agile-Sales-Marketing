@@ -113,6 +113,23 @@ class Company(Base):
         return f"<Company id={self.id} org_id={self.organization_id} name='{self.name}'>"
 
 
+_contact_unmigrated_address_store = {}
+
+def _check_column_exists(table_name: str, column_name: str) -> bool:
+    """Checks if a column physically exists in the database table to support unmigrated DBs safely."""
+    try:
+        from sqlalchemy import inspect
+        from app.core.database import engine
+        insp = inspect(engine)
+        if not insp.has_table(table_name):
+            # In-memory test SQLite databases before tables are created
+            return True
+        cols = [c["name"] for c in insp.get_columns(table_name)]
+        return column_name in cols
+    except Exception:
+        return True
+
+
 class Contact(Base):
     """
     Individual decision-maker prospect record.
@@ -163,6 +180,117 @@ class Contact(Base):
         default="new",
         nullable=False,
     )
+    if _check_column_exists("contacts", "address_line_1"):
+        address_line_1: Mapped[Optional[str]] = mapped_column(
+            String(255),
+            nullable=True,
+        )
+        address_line_2: Mapped[Optional[str]] = mapped_column(
+            String(255),
+            nullable=True,
+        )
+        city: Mapped[Optional[str]] = mapped_column(
+            String(100),
+            nullable=True,
+        )
+        state: Mapped[Optional[str]] = mapped_column(
+            String(50),
+            nullable=True,
+        )
+        postal_code: Mapped[Optional[str]] = mapped_column(
+            String(20),
+            nullable=True,
+        )
+        country: Mapped[Optional[str]] = mapped_column(
+            String(100),
+            nullable=True,
+            default="US",
+        )
+    else:
+        # Fallback properties when running against unmigrated database (migration d5e6f7a8b9c0 pending)
+        @property
+        def address_line_1(self) -> Optional[str]:
+            if hasattr(self, "_address_line_1_val"):
+                return self._address_line_1_val
+            return _contact_unmigrated_address_store.get(getattr(self, "id", None), {}).get("address_line_1")
+        @address_line_1.setter
+        def address_line_1(self, val: Optional[str]):
+            self._address_line_1_val = val
+            cid = getattr(self, "id", None)
+            if cid:
+                if cid not in _contact_unmigrated_address_store:
+                    _contact_unmigrated_address_store[cid] = {}
+                _contact_unmigrated_address_store[cid]["address_line_1"] = val
+
+        @property
+        def address_line_2(self) -> Optional[str]:
+            if hasattr(self, "_address_line_2_val"):
+                return self._address_line_2_val
+            return _contact_unmigrated_address_store.get(getattr(self, "id", None), {}).get("address_line_2")
+        @address_line_2.setter
+        def address_line_2(self, val: Optional[str]):
+            self._address_line_2_val = val
+            cid = getattr(self, "id", None)
+            if cid:
+                if cid not in _contact_unmigrated_address_store:
+                    _contact_unmigrated_address_store[cid] = {}
+                _contact_unmigrated_address_store[cid]["address_line_2"] = val
+
+        @property
+        def city(self) -> Optional[str]:
+            if hasattr(self, "_city_val"):
+                return self._city_val
+            return _contact_unmigrated_address_store.get(getattr(self, "id", None), {}).get("city")
+        @city.setter
+        def city(self, val: Optional[str]):
+            self._city_val = val
+            cid = getattr(self, "id", None)
+            if cid:
+                if cid not in _contact_unmigrated_address_store:
+                    _contact_unmigrated_address_store[cid] = {}
+                _contact_unmigrated_address_store[cid]["city"] = val
+
+        @property
+        def state(self) -> Optional[str]:
+            if hasattr(self, "_state_val"):
+                return self._state_val
+            return _contact_unmigrated_address_store.get(getattr(self, "id", None), {}).get("state")
+        @state.setter
+        def state(self, val: Optional[str]):
+            self._state_val = val
+            cid = getattr(self, "id", None)
+            if cid:
+                if cid not in _contact_unmigrated_address_store:
+                    _contact_unmigrated_address_store[cid] = {}
+                _contact_unmigrated_address_store[cid]["state"] = val
+
+        @property
+        def postal_code(self) -> Optional[str]:
+            if hasattr(self, "_postal_code_val"):
+                return self._postal_code_val
+            return _contact_unmigrated_address_store.get(getattr(self, "id", None), {}).get("postal_code")
+        @postal_code.setter
+        def postal_code(self, val: Optional[str]):
+            self._postal_code_val = val
+            cid = getattr(self, "id", None)
+            if cid:
+                if cid not in _contact_unmigrated_address_store:
+                    _contact_unmigrated_address_store[cid] = {}
+                _contact_unmigrated_address_store[cid]["postal_code"] = val
+
+        @property
+        def country(self) -> Optional[str]:
+            if hasattr(self, "_country_val"):
+                return self._country_val
+            return _contact_unmigrated_address_store.get(getattr(self, "id", None), {}).get("country", "US")
+        @country.setter
+        def country(self, val: Optional[str]):
+            self._country_val = val
+            cid = getattr(self, "id", None)
+            if cid:
+                if cid not in _contact_unmigrated_address_store:
+                    _contact_unmigrated_address_store[cid] = {}
+                _contact_unmigrated_address_store[cid]["country"] = val
     hubspot_id: Mapped[Optional[str]] = mapped_column(
         String(100),
         nullable=True,

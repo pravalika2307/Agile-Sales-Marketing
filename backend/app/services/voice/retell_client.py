@@ -271,12 +271,6 @@ class RetellClient:
         """
         payload: Dict[str, Any] = {
             "limit": min(max(1, limit), 100),
-            "filter_criteria": {
-                "channel": {
-                    "op": "eq",
-                    "value": "voice",
-                }
-            },
         }
         if pagination_key:
             payload["pagination_key"] = pagination_key
@@ -365,6 +359,31 @@ class RetellClient:
             last_modification_timestamp=data.get("last_modification_timestamp"),
             raw_data=data,
         )
+
+    # ── Phone Number Operations ───────────────────────────────────────────────
+
+    def list_phone_numbers(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves configured phone numbers from Retell AI.
+        Safe: strictly read-only inspection.
+        """
+        try:
+            resp = self._execute_request("GET", "/v2/list-phone-numbers")
+            data = resp.json()
+            if isinstance(data, dict):
+                return data.get("items") or []
+            elif isinstance(data, list):
+                return data
+            return []
+        except RetellAPIError as exc:
+            if exc.status_code in (404, 405):
+                resp = self._execute_request("GET", "/list-phone-numbers")
+                data = resp.json()
+                if isinstance(data, dict):
+                    return data.get("items") or []
+                elif isinstance(data, list):
+                    return data
+            raise
 
     # ── Call Operations ───────────────────────────────────────────────────────
 

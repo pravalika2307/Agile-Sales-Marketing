@@ -136,40 +136,9 @@ class CampaignSchedulerService:
 
         for camp in campaigns:
             org_booking_url = get_organization_booking_url(self.db, camp.organization_id)
-            # 2. Get active campaign steps ordered by step_number
-            active_steps = (
-                self.db.query(CampaignStep)
-                .filter(
-                    CampaignStep.campaign_id == camp.id,
-                    CampaignStep.organization_id == camp.organization_id,
-                    CampaignStep.is_active == True,
-                )
-                .order_by(CampaignStep.step_number.asc())
-                .all()
-            )
-            if not active_steps and camp.workflow_config and isinstance(camp.workflow_config, dict):
-                wf_nodes = camp.workflow_config.get("nodes", [])
-                comm_nodes = [
-                    n for n in wf_nodes
-                    if isinstance(n, dict) and n.get("type") in ("email", "sms", "voice")
-                ]
-                synth_steps = []
-                for s_num, n in enumerate(comm_nodes, start=1):
-                    c = n.get("config", {}) or {}
-                    stype = n.get("type", "email")
-                    synth_steps.append(
-                        SimpleNamespace(
-                            id=n.get("id"),
-                            step_number=s_num,
-                            step_type=stype,
-                            subject_template=c.get("subject") or c.get("subject_template"),
-                            body_template=c.get("body") or c.get("body_template"),
-                            delay_days=int(c.get("delay_days", 0) or 0),
-                            delay_hours=int(c.get("delay_hours", 0) or 0),
-                            is_active=bool(c.get("is_active", True)),
-                        )
-                    )
-                active_steps = [s for s in synth_steps if s.is_active]
+            # 2. Get active campaign steps ordered by step_number from visual workflow graph or legacy steps
+            from app.services.workflow_service import get_campaign_ordered_steps
+            active_steps = [s for s in get_campaign_ordered_steps(self.db, camp) if s.is_active]
 
             if not active_steps:
                 continue
@@ -333,19 +302,23 @@ class CampaignSchedulerService:
                             if contact.company_id else None
                         )
                         step1_channel = getattr(step_1, "step_type", "email") or "email"
-                        rendered_subj = (
-                            render_template(step_1.subject_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
-                            if step_1.subject_template
-                            else (None if step1_channel in ("sms", "voice") else "")
-                        )
-                        rendered_body = (
-                            render_template(step_1.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
-                            if step_1.body_template
-                            else (None if step1_channel == "voice" else "")
-                        )
+                        if step1_channel == "physical_mail":
+                            rendered_subj = step_1.subject_template or "Poplar Direct Mail"
+                            rendered_body = f"Physical mailing to {contact.postal_address_line1}, {contact.postal_city or ''}"
+                        else:
+                            rendered_subj = (
+                                render_template(step_1.subject_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                                if step_1.subject_template
+                                else (None if step1_channel in ("sms", "voice") else "")
+                            )
+                            rendered_body = (
+                                render_template(step_1.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                                if step_1.body_template
+                                else (None if step1_channel == "voice" else "")
+                            )
 
                         unresolved = []
-                        if step1_channel != "voice":
+                        if step1_channel in ("email", "sms"):
                             unresolved = (find_unresolved_placeholders(rendered_subj) if rendered_subj else []) + (find_unresolved_placeholders(rendered_body) if rendered_body else [])
                         if unresolved:
                             result.error_count += 1
@@ -467,19 +440,23 @@ class CampaignSchedulerService:
                             if contact.company_id else None
                         )
                         next_channel = getattr(next_step, "step_type", "email") or "email"
-                        rendered_subj = (
-                            render_template(next_step.subject_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
-                            if next_step.subject_template
-                            else (None if next_channel in ("sms", "voice") else "")
-                        )
-                        rendered_body = (
-                            render_template(next_step.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
-                            if next_step.body_template
-                            else (None if next_channel == "voice" else "")
-                        )
+                        if next_channel == "physical_mail":
+                            rendered_subj = next_step.subject_template or "Poplar Direct Mail"
+                            rendered_body = f"Physical mailing to {contact.postal_address_line1}, {contact.postal_city or ''}"
+                        else:
+                            rendered_subj = (
+                                render_template(next_step.subject_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                                if next_step.subject_template
+                                else (None if next_channel in ("sms", "voice") else "")
+                            )
+                            rendered_body = (
+                                render_template(next_step.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                                if next_step.body_template
+                                else (None if next_channel == "voice" else "")
+                            )
 
                         unresolved = []
-                        if next_channel != "voice":
+                        if next_channel in ("email", "sms"):
                             unresolved = (find_unresolved_placeholders(rendered_subj) if rendered_subj else []) + (find_unresolved_placeholders(rendered_body) if rendered_body else [])
                         if unresolved:
                             result.error_count += 1

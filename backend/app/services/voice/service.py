@@ -186,6 +186,8 @@ def send_voice_outreach(
     retell_client: Optional[RetellClient] = None,
     raise_on_failure: bool = False,
     force_mock: bool = False,
+    auto_complete_mock: bool = False,
+    mock_outcome: str = "INTERESTED",
 ) -> Outreach:
     """
     Dispatches an outbound voice campaign outreach call.
@@ -449,6 +451,16 @@ def send_voice_outreach(
             accepted_call_id,
             call_record.call_status,
         )
+
+        if auto_complete_mock and bool(call_resp.get("simulated")):
+            complete_simulated_voice_call(
+                db=db,
+                org_id=org_id,
+                outreach_id=outreach.id,
+                outcome=mock_outcome,
+            )
+            db.refresh(outreach)
+
         return outreach
 
     except Exception as exc:
@@ -475,3 +487,235 @@ def send_voice_outreach(
         if raise_on_failure:
             raise ProviderDeliveryError(f"Retell call initiation failed: {sanitized_err}") from exc
         return outreach
+
+
+# ── Deterministic Mock Call Completion ────────────────────────────────────────
+
+def complete_simulated_voice_call(
+    db: Session,
+    org_id: uuid.UUID,
+    outreach_id: Optional[uuid.UUID] = None,
+    call_id: Optional[str] = None,
+    outcome: str = "INTERESTED",
+    meeting_requested: bool = False,
+    callback_requested: bool = False,
+    qualification_score: int = 85,
+    call_summary: Optional[str] = None,
+    disconnection_reason: Optional[str] = None,
+    email_provider: Optional[Any] = None,
+):
+    """
+    Deterministically completes a simulated/test outbound Retell voice call without
+    initiating external Retell or email provider HTTP requests.
+
+    Guarantees:
+    1. Tenant isolation: Strictly validates Organization scope.
+    2. Simulated Safety: Rejects execution if targeted call is a live Retell call.
+    3. Idempotency: Duplicate completion triggers return duplicate=True without repeating
+       email follow-ups or regressing states.
+    4. Terminal State: Transitions voice outreach from 'sending' to terminal 'sent' or 'failed'.
+    5. Follow-Up Dispatch: For positive outcomes, triggers safe Step 2 email follow-up
+       via MockEmailProvider with booking URL, advancing CampaignContact to Step 2.
+    """
+    from app.schemas.voice import SimulateMockCallCompletionResponse
+    from app.services.outreach.base import MockEmailProvider
+    from app.services.outreach.voice_followup import VoiceFollowUpService
+
+    outreach: Optional[Outreach] = None
+    call_record: Optional[CallRecord] = None
+
+    if outreach_id:
+        outreach = (
+            db.query(Outreach)
+            .filter(Outreach.id == outreach_id, Outreach.organization_id == org_id)
+            .first()
+        )
+        if not outreach:
+            raise OutreachNotFoundError(f"Outreach '{outreach_id}' not found.")
+        if outreach.call_record_id:
+            call_record = db.get(CallRecord, outreach.call_record_id)
+        if not call_record and outreach.provider_message_id:
+            call_record = (
+                db.query(CallRecord)
+                .filter(
+                    CallRecord.call_id == outreach.provider_message_id,
+                    CallRecord.organization_id == org_id,
+                )
+                .first()
+            )
+    elif call_id:
+        call_record = (
+            db.query(CallRecord)
+            .filter(
+                CallRecord.call_id == call_id,
+                CallRecord.organization_id == org_id,
+            )
+            .first()
+        )
+        if not call_record:
+            raise VoiceServiceError(f"Call record '{call_id}' not found.")
+        outreach = (
+            db.query(Outreach)
+            .filter(
+                Outreach.call_record_id == call_record.id,
+                Outreach.organization_id == org_id,
+            )
+            .first()
+        )
+        if not outreach and call_record.call_id:
+            outreach = (
+                db.query(Outreach)
+                .filter(
+                    Outreach.provider_message_id == call_record.call_id,
+                    Outreach.organization_id == org_id,
+                )
+                .first()
+            )
+    else:
+        raise VoiceServiceError("Either outreach_id or call_id must be provided.")
+
+    target_call_id = (
+        call_record.call_id
+        if call_record
+        else (outreach.provider_message_id if outreach else None)
+    )
+    if not target_call_id:
+        target_call_id = f"call_mock_{uuid.uuid4().hex[:16]}"
+        if call_record:
+            call_record.call_id = target_call_id
+        if outreach:
+            outreach.provider_message_id = target_call_id
+        db.commit()
+
+    # Safety Guard: Ensure mock simulation call
+    is_live_allowed = getattr(settings, "is_retell_live_calling_allowed", False)
+    is_mock = (
+        target_call_id.startswith("call_mock_")
+        or (call_record and isinstance(call_record.metadata_json, dict) and call_record.metadata_json.get("simulated"))
+        or (outreach and outreach.provider == "mock")
+        or not is_live_allowed
+    )
+    if not is_mock and is_live_allowed:
+        raise VoiceServiceError(
+            "Cannot complete non-simulated call via mock completion handler. "
+            "Call must be simulated with prefix 'call_mock_' or have simulated=True."
+        )
+
+    norm_outcome = (outcome or "INTERESTED").strip().upper()
+
+    # Idempotency Check: Already in terminal state with processed follow-up
+    if (
+        call_record
+        and call_record.call_status == "analyzed"
+        and outreach
+        and outreach.status in ("sent", "failed")
+        and call_record.followup_status in ("sent", "skipped")
+    ):
+        logger.info(
+            "Deterministic mock completion idempotent duplicate skipped for call_id=%s, outreach_id=%s",
+            target_call_id,
+            outreach.id if outreach else None,
+        )
+        return SimulateMockCallCompletionResponse(
+            status="success",
+            call_id=target_call_id,
+            outreach_id=str(outreach.id) if outreach else None,
+            call_status=call_record.call_status,
+            outreach_status=outreach.status if outreach else "sent",
+            call_outcome=call_record.call_outcome or norm_outcome,
+            simulated=True,
+            duplicate=True,
+            followup_email_created=bool(call_record.followup_email_id),
+            followup_email_id=str(call_record.followup_email_id) if call_record.followup_email_id else None,
+            followup_status=call_record.followup_status,
+            followup_reason=call_record.followup_reason or "Simulated call completion already processed (idempotent duplicate skipped)",
+            message="Simulated call completion already processed (idempotent duplicate skipped).",
+        )
+
+    # Resolve contact and company information for variables
+    contact = (
+        outreach.contact
+        if outreach and outreach.contact
+        else (db.get(Contact, call_record.contact_id) if call_record and call_record.contact_id else None)
+    )
+    company = contact.company if contact and getattr(contact, "company", None) else None
+    lead_name = (
+        f"{contact.first_name} {contact.last_name}".strip()
+        if contact and (contact.first_name or contact.last_name)
+        else None
+    )
+    lead_email = contact.email if contact else None
+    company_name = company.name if company else None
+
+    # Construct synthetic Retell call_analyzed payload
+    synthetic_payload: Dict[str, Any] = {
+        "event": "call_analyzed",
+        "call": {
+            "call_id": target_call_id,
+            "agent_id": call_record.agent_id if call_record else (getattr(settings, "RETELL_AGENT_ID", None) or "agent_mock_test"),
+            "direction": "outbound",
+            "call_status": "analyzed",
+            "from_number": call_record.caller_phone if call_record else (getattr(settings, "RETELL_FROM_NUMBER", None) or "+18005550199"),
+            "to_phone": call_record.to_phone if call_record else (outreach.recipient if outreach else None),
+            "duration_ms": 45000,
+            "disconnection_reason": disconnection_reason or ("call_completed" if norm_outcome not in ("NO_ANSWER", "UNAVAILABLE") else "no_answer"),
+            "transcript": f"Simulated call transcript for prospect. Call completed with outcome {norm_outcome}.",
+            "call_analysis": {
+                "call_summary": call_summary or f"Simulated outbound call completed with outcome {norm_outcome}.",
+                "call_outcome": norm_outcome,
+                "custom_analysis_data": {
+                    "call_outcome": norm_outcome,
+                    "interest_level": "high" if norm_outcome in ("INTERESTED", "QUALIFIED", "MEETING_REQUESTED") else "low",
+                    "meeting_requested": meeting_requested or (norm_outcome == "MEETING_REQUESTED"),
+                    "callback_requested": callback_requested or (norm_outcome == "CALLBACK_REQUESTED"),
+                    "do_not_contact": (norm_outcome == "DO_NOT_CONTACT"),
+                    "qualification_score": qualification_score,
+                    "lead_full_name": lead_name,
+                    "email": lead_email,
+                    "company_name": company_name,
+                },
+            },
+            "metadata": {
+                "organization_id": str(org_id),
+                "outreach_id": str(outreach.id) if outreach else None,
+                "campaign_id": str(outreach.campaign_id) if outreach and outreach.campaign_id else (str(call_record.campaign_id) if call_record and call_record.campaign_id else None),
+                "contact_id": str(contact.id) if contact else None,
+                "campaign_contact_id": str(outreach.campaign_contact_id) if outreach and outreach.campaign_contact_id else None,
+                "simulated": True,
+            },
+        },
+    }
+
+    # Execute deterministic follow-up lifecycle with guaranteed MockEmailProvider
+    service = VoiceFollowUpService(
+        db=db,
+        email_provider=email_provider or MockEmailProvider(),
+        cooldown_hours=0,
+    )
+    result = service.process_call_analyzed(
+        payload=synthetic_payload,
+        org_id_override=org_id,
+    )
+
+    if outreach:
+        outreach.provider = "mock"
+        db.commit()
+        db.refresh(outreach)
+    if call_record:
+        db.refresh(call_record)
+
+    return SimulateMockCallCompletionResponse(
+        status=result.get("status", "success"),
+        call_id=target_call_id,
+        outreach_id=str(outreach.id) if outreach else None,
+        call_status=call_record.call_status if call_record else "analyzed",
+        outreach_status=outreach.status if outreach else "sent",
+        call_outcome=norm_outcome,
+        simulated=True,
+        duplicate=result.get("duplicate", False),
+        followup_email_created=bool(result.get("email_sent")),
+        followup_email_id=result.get("followup_email_id"),
+        followup_status=result.get("followup_status"),
+        followup_reason=result.get("followup_reason"),
+        message=f"Simulated voice call completed with outcome '{norm_outcome}'.",
+    )

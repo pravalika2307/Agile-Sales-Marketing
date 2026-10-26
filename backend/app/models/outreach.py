@@ -30,6 +30,7 @@ ALLOWED_OUTREACH_CHANNELS = {
     "linkedin",
     "voice",
     "sms",
+    "physical_mail",
 }
 
 ALLOWED_OUTREACH_STATUSES = {
@@ -200,7 +201,7 @@ class Outreach(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "channel IN ('email', 'linkedin', 'voice', 'sms')",
+            "channel IN ('email', 'linkedin', 'voice', 'sms', 'physical_mail')",
             name="ck_outreach_channel",
         ),
         CheckConstraint(

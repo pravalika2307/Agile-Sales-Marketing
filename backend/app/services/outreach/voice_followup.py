@@ -1445,6 +1445,13 @@ class VoiceFollowUpService:
             )
 
         if linked_outreach and linked_outreach.status == "sending":
+            is_simulated_call = (
+                data.call_id.startswith("call_mock_")
+                or (isinstance(data.metadata_json, dict) and data.metadata_json.get("simulated"))
+            )
+            if is_simulated_call:
+                linked_outreach.provider = "mock"
+
             disc = (data.disconnection_reason or "").lower()
             if "fail" in disc or "error" in disc or data.call_outcome in ("UNAVAILABLE", "NO_ANSWER"):
                 linked_outreach.status = "failed"
@@ -1453,7 +1460,11 @@ class VoiceFollowUpService:
                         organization_id=org.id,
                         outreach_id=linked_outreach.id,
                         event_type="failed",
-                        event_metadata={"call_id": data.call_id, "reason": data.disconnection_reason or data.call_outcome},
+                        event_metadata={
+                            "call_id": data.call_id,
+                            "reason": data.disconnection_reason or data.call_outcome,
+                            "simulated": is_simulated_call,
+                        },
                         occurred_at=datetime.now(timezone.utc),
                     )
                 )
@@ -1465,7 +1476,11 @@ class VoiceFollowUpService:
                         organization_id=org.id,
                         outreach_id=linked_outreach.id,
                         event_type="sent",
-                        event_metadata={"call_id": data.call_id, "call_outcome": data.call_outcome},
+                        event_metadata={
+                            "call_id": data.call_id,
+                            "call_outcome": data.call_outcome,
+                            "simulated": is_simulated_call,
+                        },
                         occurred_at=linked_outreach.sent_at,
                     )
                 )
@@ -1476,7 +1491,7 @@ class VoiceFollowUpService:
             if cc and cc.enrollment_status == "in_progress":
                 if data.meeting_requested or data.call_outcome == OUTCOME_MEETING_REQUESTED:
                     cc.enrollment_status = "completed"
-                elif data.do_not_contact or data.call_outcome == OUTCOME_DO_NOT_CONTACT:
+                elif data.do_not_contact or data.call_outcome in (OUTCOME_DO_NOT_CONTACT, OUTCOME_NOT_INTERESTED):
                     cc.enrollment_status = "completed"
 
         # 2. Resolve authoritative recipient email
@@ -1631,14 +1646,55 @@ class VoiceFollowUpService:
 
         # Render Safe Email Content with Organization Configured Booking URL
         booking_url = get_organization_booking_url(self.db, org.id)
-        subject, body = self.render_email_content(
-            decision,
-            data,
-            organization=org,
-            contact=contact,
-            lead=lead,
-            booking_url=booking_url,
-        )
+
+        campaign_step_2 = None
+        if call_record.campaign_id:
+            from app.models.campaign_step import CampaignStep
+            campaign_step_2 = (
+                self.db.query(CampaignStep)
+                .filter(
+                    CampaignStep.campaign_id == call_record.campaign_id,
+                    CampaignStep.step_number == 2,
+                    CampaignStep.step_type == "email",
+                    CampaignStep.is_active.is_(True),
+                )
+                .first()
+            )
+
+        if campaign_step_2 and campaign_step_2.body_template:
+            from app.services.campaign_steps.template_renderer import render_template
+            sender_name = settings.EMAIL_FROM_NAME or (org.name if org else "Agile Sales & Marketing Team")
+            sender_company = org.name if org and org.name else "Agile Sales & Marketing"
+            company = contact.company if contact and getattr(contact, "company", None) else None
+            subject = (
+                render_template(
+                    campaign_step_2.subject_template,
+                    contact=contact,
+                    company=company,
+                    sender_name=sender_name,
+                    sender_company_name=sender_company,
+                    booking_link=booking_url,
+                )
+                if campaign_step_2.subject_template
+                else "Follow-up regarding our call"
+            )
+            body = render_template(
+                campaign_step_2.body_template,
+                contact=contact,
+                company=company,
+                sender_name=sender_name,
+                sender_company_name=sender_company,
+                booking_link=booking_url,
+            ) or ""
+        else:
+            subject, body = self.render_email_content(
+                decision,
+                data,
+                organization=org,
+                contact=contact,
+                lead=lead,
+                booking_url=booking_url,
+            )
         recipient_email = decision.recipient_email
 
         # Send via existing EmailProvider abstraction (Resend / SES / Mock)
@@ -1712,12 +1768,19 @@ class VoiceFollowUpService:
         )
         self.db.add(outreach_event)
 
-        # Update CallRecord
+        # Update CallRecord and advance campaign enrollment
         if send_result.success:
             call_record.followup_status = "sent"
             call_record.followup_reason = f"Sent {decision.followup_type} to {recipient_email}"
             call_record.followup_email_id = outreach_record.id
             call_record.followup_idempotency_key = idempotency_key
+            if campaign_contact_id:
+                cc = self.db.get(CampaignContact, campaign_contact_id)
+                if cc and cc.enrollment_status == "in_progress":
+                    if data.meeting_requested or data.call_outcome == OUTCOME_MEETING_REQUESTED:
+                        cc.enrollment_status = "completed"
+                    else:
+                        cc.current_step = max(cc.current_step, 2)
         else:
             call_record.followup_status = "failed"
             call_record.followup_reason = f"Provider delivery failed: {send_result.error_message}"

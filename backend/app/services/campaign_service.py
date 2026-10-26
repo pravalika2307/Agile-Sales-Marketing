@@ -70,7 +70,7 @@ def create_campaign(
 
     # Determine or synthesize initial workflow_config
     workflow_config = data.workflow_config
-    if (not workflow_config or not isinstance(workflow_config, dict) or not workflow_config.get("nodes")) and channel in ("sms", "voice"):
+    if (not workflow_config or not isinstance(workflow_config, dict) or not workflow_config.get("nodes")) and channel in ("sms", "voice", "physical_mail"):
         start_id = "start-node"
         step_id = "step-node-1"
         if channel == "sms":
@@ -136,20 +136,26 @@ def create_campaign(
     db.add(campaign)
     db.flush()
 
-    # Synchronize steps: if custom workflow email steps provided, create them;
-    # if channel is email and no email steps in workflow, create default Step 1
+    # Synchronize steps: maintain sequence order across multi-channel workflows
     has_custom_steps = False
     if workflow_config and isinstance(workflow_config, dict):
         wf_nodes = workflow_config.get("nodes", [])
-        email_nodes = [n for n in wf_nodes if isinstance(n, dict) and n.get("type") == "email"]
-        if email_nodes:
-            has_custom_steps = True
-            for step_num, node in enumerate(email_nodes, start=1):
-                cfg = node.get("config", {}) or {}
+        has_custom_steps = any(isinstance(n, dict) and n.get("type") in ("email", "voice", "sms", "physical_mail") for n in wf_nodes)
+        step_idx = 1
+        for node in wf_nodes:
+            if not isinstance(node, dict):
+                continue
+            ntype = node.get("type")
+            cfg = node.get("config", {}) or {}
+            if ntype in ("voice", "sms", "physical_mail"):
+                # Multi-channel steps are authoritatively maintained in workflow_config
+                step_idx += 1
+            elif ntype == "email":
+                s_num = int(cfg.get("step_number") or step_idx)
                 step = CampaignStep(
                     organization_id=org_id,
                     campaign_id=campaign.id,
-                    step_number=step_num,
+                    step_number=s_num,
                     step_type="email",
                     delay_days=int(cfg.get("delay_days", 0) or 0),
                     delay_hours=int(cfg.get("delay_hours", 0) or 0),
@@ -158,6 +164,7 @@ def create_campaign(
                     body_template=cfg.get("body") or cfg.get("body_template"),
                 )
                 db.add(step)
+                step_idx += 1
 
     # Only create default CampaignStep if the channel is email and no custom email steps were created
     if not has_custom_steps and channel == "email":
