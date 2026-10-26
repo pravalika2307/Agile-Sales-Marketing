@@ -212,6 +212,48 @@ class Settings(BaseSettings):
             and self.TWILIO_ALLOW_LIVE_SENDING
         )
 
+    # Poplar Direct Mail Integration Settings
+    # Credentials are marked with repr=False to prevent secret leakage in logs
+    POPLAR_TEST_API_KEY: Optional[str] = Field(default=None, repr=False)
+    POPLAR_PRODUCTION_API_KEY: Optional[str] = Field(default=None, repr=False)
+    POPLAR_API_KEY: Optional[str] = Field(default=None, repr=False)
+    POPLAR_ENVIRONMENT: str = Field(default="test")  # "test" or "production"
+    POPLAR_BASE_URL: str = Field(default="https://api.heypoplar.com/v1")
+    POPLAR_DEFAULT_CAMPAIGN_ID: Optional[str] = Field(default=None)
+    POPLAR_DEFAULT_CREATIVE_ID: Optional[str] = Field(default=None)
+    POPLAR_ENABLED: bool = Field(default=False)
+    POPLAR_ALLOW_LIVE_SENDING: bool = Field(default=False)
+    POPLAR_TIMEOUT_SECONDS: float = Field(default=15.0)
+    POPLAR_WEBHOOK_SECRET: Optional[str] = Field(default=None, repr=False)
+    POPLAR_VERIFY_WEBHOOK_SIGNATURE: bool = Field(default=True)
+
+    @property
+    def is_poplar_configured(self) -> bool:
+        """Check if Poplar API credentials are configured for the active environment."""
+        if self.POPLAR_ENVIRONMENT == "production":
+            key = self.POPLAR_PRODUCTION_API_KEY or (
+                self.POPLAR_API_KEY if self.POPLAR_API_KEY and not self.POPLAR_API_KEY.startswith("test_") else None
+            )
+        else:
+            key = self.POPLAR_TEST_API_KEY or (
+                self.POPLAR_API_KEY if self.POPLAR_API_KEY and self.POPLAR_API_KEY.startswith("test_") else None
+            )
+        return bool(key and key.strip())
+
+    @property
+    def is_poplar_live_sending_allowed(self) -> bool:
+        """
+        Fail-closed guard for live physical mail sending.
+        Requires POPLAR_ENABLED=True, POPLAR_ALLOW_LIVE_SENDING=True,
+        POPLAR_ENVIRONMENT='production', and valid production credentials.
+        """
+        return bool(
+            self.POPLAR_ENABLED
+            and self.POPLAR_ALLOW_LIVE_SENDING
+            and self.POPLAR_ENVIRONMENT == "production"
+            and (self.POPLAR_PRODUCTION_API_KEY or (self.POPLAR_API_KEY and not self.POPLAR_API_KEY.startswith("test_")))
+        )
+
     # Campaign execution scheduler settings
     SCHEDULER_ENABLED: bool = Field(default=False)
     SCHEDULER_INTERVAL_SECONDS: int = Field(default=60)
@@ -226,9 +268,10 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID_AI: Optional[str] = Field(default=None, repr=False)
     AWS_SECRET_ACCESS_KEY_AI: Optional[str] = Field(default=None, repr=False)
     BEDROCK_READ_TIMEOUT: int = Field(default=60)
-    BEDROCK_CONNECT_TIMEOUT: int = Field(default=10)
-    BEDROCK_TEMPERATURE: float = Field(default=0.4)
-    BEDROCK_MAX_TOKENS: int = Field(default=2048)
+    BEDROCK_CONNECT_TIMEOUT: int = Field(default=15)
+    BEDROCK_READ_TIMEOUT: int = Field(default=60)
+    BEDROCK_TEMPERATURE: float = Field(default=0.3)
+    BEDROCK_MAX_TOKENS: int = Field(default=8192)
 
     @property
     def is_bedrock_configured(self) -> bool:

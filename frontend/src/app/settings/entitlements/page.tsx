@@ -169,6 +169,10 @@ export default function CustomerEntitlementsPage() {
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                           <CheckCircle2 className="w-3 h-3" /> Active / Unlocked
                         </span>
+                      ) : ch.status === "provider_unavailable" ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                          <Clock className="w-3 h-3" /> In Development
+                        </span>
                       ) : ch.status === "upgrade_requested" ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
                           <Clock className="w-3 h-3" /> Review Pending
@@ -188,6 +192,14 @@ export default function CustomerEntitlementsPage() {
                     <div className="flex justify-between text-slate-600">
                       <span className="text-slate-400">Provider:</span>
                       <span className="font-medium">{ch.provider}</span>
+                    </div>
+                    <div className="flex justify-between items-start text-slate-600">
+                      <span className="text-slate-400">Connection Status:</span>
+                      <span className={`font-medium text-right text-[10px] max-w-[170px] truncate ${
+                        ch.provider_configured ? "text-emerald-700" : "text-amber-700"
+                      }`} title={ch.provider_status_message || (ch.provider_configured ? "Connected" : "Setup Required")}>
+                        {ch.provider_status_message || (ch.provider_configured ? "Connected" : "Setup Required")}
+                      </span>
                     </div>
                     <div className="flex justify-between text-slate-600">
                       <span className="text-slate-400">Pricing Model:</span>
@@ -219,6 +231,10 @@ export default function CustomerEntitlementsPage() {
                     <div className="text-center py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50/60 rounded-md border border-emerald-100">
                       Ready for Campaign Sequences
                     </div>
+                  ) : ch.status === "provider_unavailable" ? (
+                    <div className="text-center py-1.5 text-xs font-medium text-slate-400 bg-slate-50 rounded-md border border-slate-200">
+                      Provider Under Development
+                    </div>
                   ) : ch.status === "upgrade_requested" ? (
                     <div className="text-center py-1.5 text-xs font-medium text-amber-700 bg-amber-50/60 rounded-md border border-amber-200">
                       Awaiting Platform Review
@@ -226,7 +242,7 @@ export default function CustomerEntitlementsPage() {
                   ) : (
                     <Button
                       onClick={() => handleOpenRequest(ch.channel)}
-                      className="w-full text-xs h-8 gap-1.5"
+                      className="w-full text-xs h-8 gap-1.5 bg-agile-red hover:bg-agile-red/90 text-white"
                     >
                       Request Channel Access
                       <ArrowRight className="w-3 h-3" />

@@ -76,16 +76,10 @@ def preview_campaign_execution(
         .all()
     )
 
-    # Check for active Step 1
-    step_1 = (
-        db.query(CampaignStep)
-        .filter(
-            CampaignStep.campaign_id == campaign.id,
-            CampaignStep.step_number == 1,
-            CampaignStep.is_active == True,
-        )
-        .first()
-    )
+    # Check for active Step 1 from visual workflow graph or legacy steps
+    from app.services.workflow_service import get_campaign_ordered_steps
+    ordered_steps = get_campaign_ordered_steps(db, campaign)
+    step_1 = next((s for s in ordered_steps if s.step_number == 1 and s.is_active), None)
 
     eligible_ids: List[uuid.UUID] = []
     skipped_ids: List[uuid.UUID] = []
@@ -117,33 +111,62 @@ def preview_campaign_execution(
                 # If no active Step 1 exists, contact cannot be executed
                 skipped_ids.append(cc.id)
             else:
+                step1_type = getattr(step_1, "step_type", "email") or "email"
+                if step1_type in ("voice", "sms") and not (contact and contact.phone):
+                    skipped_ids.append(cc.id)
+                    continue
+                elif step1_type == "physical_mail" and not (contact and contact.postal_address_line1):
+                    skipped_ids.append(cc.id)
+                    continue
+                elif step1_type == "email" and not (contact and contact.email):
+                    skipped_ids.append(cc.id)
+                    continue
+
                 eligible_ids.append(cc.id)
                 company = (
                     db.query(Company).filter(Company.id == contact.company_id).first()
                     if contact and contact.company_id
                     else None
                 )
-                subject = render_template(
-                    step_1.subject_template,
-                    contact=contact,
-                    company=company,
-                    sender_name=sender_name,
-                )
-                has_booking_ph = bool(
-                    step_1.body_template
-                    and any(
-                        ph in step_1.body_template
-                        for ph in ("{booking_link}", "{{booking_link}}", "{booking_url}", "{{booking_url}}")
+
+                if step1_type == "voice":
+                    subject = step_1.subject_template or "AI Voice SDR Call"
+                    body = step_1.body_template or "Outbound AI Voice SDR call via Retell."
+                elif step1_type == "sms":
+                    subject = None
+                    body = render_template(
+                        step_1.body_template,
+                        contact=contact,
+                        company=company,
+                        sender_name=sender_name,
+                        booking_link=booking_url,
                     )
-                )
-                body = render_template(
-                    step_1.body_template,
-                    contact=contact,
-                    company=company,
-                    sender_name=sender_name,
-                    booking_link=booking_url,
-                    enforce_booking_cta=bool(booking_url or has_booking_ph),
-                )
+                elif step1_type == "physical_mail":
+                    subject = step_1.subject_template or "Poplar Direct Mail"
+                    body = f"Physical mailing to {contact.postal_address_line1}, {contact.postal_city or ''}"
+                else:
+                    subject = render_template(
+                        step_1.subject_template,
+                        contact=contact,
+                        company=company,
+                        sender_name=sender_name,
+                    )
+                    has_booking_ph = bool(
+                        step_1.body_template
+                        and any(
+                            ph in step_1.body_template
+                            for ph in ("{booking_link}", "{{booking_link}}", "{booking_url}", "{{booking_url}}")
+                        )
+                    )
+                    body = render_template(
+                        step_1.body_template,
+                        contact=contact,
+                        company=company,
+                        sender_name=sender_name,
+                        booking_link=booking_url,
+                        enforce_booking_cta=bool(booking_url or has_booking_ph),
+                    )
+
                 preview_items.append(
                     CampaignExecutionPreviewItem(
                         campaign_contact_id=cc.id,
@@ -191,16 +214,10 @@ def execute_campaign(
             f"Cannot execute campaign '{campaign_id}' with status '{campaign.status}'. Must be 'active'."
         )
 
-    # Check for active Step 1
-    step_1 = (
-        db.query(CampaignStep)
-        .filter(
-            CampaignStep.campaign_id == campaign.id,
-            CampaignStep.step_number == 1,
-            CampaignStep.is_active == True,
-        )
-        .first()
-    )
+    # Check for active Step 1 from visual workflow graph or legacy steps
+    from app.services.workflow_service import get_campaign_ordered_steps
+    ordered_steps = get_campaign_ordered_steps(db, campaign)
+    step_1 = next((s for s in ordered_steps if s.step_number == 1 and s.is_active), None)
 
     campaign_contacts = (
         db.query(CampaignContact)
@@ -236,6 +253,16 @@ def execute_campaign(
                 # No active Step 1 found -> skip outreach creation
                 skipped_ids.append(cc.id)
             else:
+                step1_type = getattr(step_1, "step_type", "email") or "email"
+                if step1_type in ("voice", "sms") and not (contact and contact.phone):
+                    skipped_ids.append(cc.id)
+                    continue
+                elif step1_type == "physical_mail" and not (contact and contact.postal_address_line1):
+                    skipped_ids.append(cc.id)
+                    continue
+                elif step1_type == "email" and not (contact and contact.email):
+                    skipped_ids.append(cc.id)
+                    continue
                 eligible_contacts.append(cc)
 
     created_outreach_ids: List[uuid.UUID] = []
@@ -268,51 +295,76 @@ def execute_campaign(
                     else None
                 )
 
-                # Render Step 1 templates
-                rendered_subject = render_template(
-                    step_1.subject_template if step_1 else None,
-                    contact=contact,
-                    company=company,
-                    sender_name=sender_name,
-                )
-                has_booking_ph = bool(
-                    step_1
-                    and step_1.body_template
-                    and any(
-                        ph in step_1.body_template
-                        for ph in ("{booking_link}", "{{booking_link}}", "{booking_url}", "{{booking_url}}")
-                    )
-                )
-                rendered_body = render_template(
-                    step_1.body_template if step_1 else None,
-                    contact=contact,
-                    company=company,
-                    sender_name=sender_name,
-                    booking_link=booking_url,
-                    enforce_booking_cta=bool(booking_url or has_booking_ph),
-                )
-                # Safety check: Unresolved placeholders block outreach dispatch
-                unresolved_tokens = find_unresolved_placeholders(rendered_subject) + find_unresolved_placeholders(rendered_body)
-                if unresolved_tokens:
-                    logger.warning(
-                        "Blocked dispatch for campaign contact %s due to unresolved placeholders: %s",
-                        cc.id,
-                        unresolved_tokens,
-                    )
-                    rejected_ids.append(cc.id)
-                    continue
+                step1_type = getattr(step_1, "step_type", "email") or "email"
 
+                if step1_type == "voice":
+                    rendered_subject = step_1.subject_template or "AI Voice SDR Call"
+                    rendered_body = step_1.body_template or "Outbound AI Voice SDR call via Retell."
+                    outreach_recipient = contact.phone
+                elif step1_type == "sms":
+                    rendered_subject = None
+                    rendered_body = render_template(
+                        step_1.body_template,
+                        contact=contact,
+                        company=company,
+                        sender_name=sender_name,
+                        booking_link=booking_url,
+                    )
+                    outreach_recipient = contact.phone
+                elif step1_type == "physical_mail":
+                    rendered_subject = step_1.subject_template or "Poplar Direct Mail"
+                    rendered_body = f"Physical mailing to {contact.postal_address_line1}, {contact.postal_city or ''}"
+                    outreach_recipient = contact.postal_address_line1
+                else:
+                    # Email Step
+                    rendered_subject = render_template(
+                        step_1.subject_template if step_1 else None,
+                        contact=contact,
+                        company=company,
+                        sender_name=sender_name,
+                    )
+                    has_booking_ph = bool(
+                        step_1
+                        and step_1.body_template
+                        and any(
+                            ph in step_1.body_template
+                            for ph in ("{booking_link}", "{{booking_link}}", "{booking_url}", "{{booking_url}}")
+                        )
+                    )
+                    rendered_body = render_template(
+                        step_1.body_template if step_1 else None,
+                        contact=contact,
+                        company=company,
+                        sender_name=sender_name,
+                        booking_link=booking_url,
+                        enforce_booking_cta=bool(booking_url or has_booking_ph),
+                    )
+                    outreach_recipient = contact.email
+
+                # Safety check: Unresolved placeholders block email/sms outreach dispatch
+                if step1_type in ("email", "sms"):
+                    unresolved_tokens = (find_unresolved_placeholders(rendered_subject) if rendered_subject else []) + (find_unresolved_placeholders(rendered_body) if rendered_body else [])
+                    if unresolved_tokens:
+                        logger.warning(
+                            "Blocked dispatch for campaign contact %s due to unresolved placeholders: %s",
+                            cc.id,
+                            unresolved_tokens,
+                        )
+                        rejected_ids.append(cc.id)
+                        continue
 
                 outreach_payload = OutreachCreate(
                     campaign_id=campaign.id,
                     contact_id=cc.contact_id,
                     campaign_contact_id=cc.id,
-                    channel="email",
+                    channel=step1_type,
                     subject=rendered_subject,
                     body=rendered_body,
                     scheduled_at=None,
                 )
                 outreach = create_outreach(db, org_id, outreach_payload, commit=False)
+                if outreach_recipient:
+                    outreach.recipient = outreach_recipient
                 cc.enrollment_status = "in_progress"
                 cc.current_step = 1
                 db.flush()

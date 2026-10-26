@@ -24,6 +24,10 @@ class LeadCreate(BaseModel):
     industry: Optional[str] = Field(None, max_length=100)
     employee_count_range: Optional[str] = Field(None, max_length=50)
     city: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=50)
+    postal_code: Optional[str] = Field(None, max_length=20)
+    address_line_1: Optional[str] = Field(None, max_length=255)
+    address_line_2: Optional[str] = Field(None, max_length=255)
     country: Optional[str] = Field(None, max_length=100)
     icp_id: Optional[uuid.UUID] = None
     lead_temperature: Optional[LeadTemperatureType] = None
@@ -51,6 +55,10 @@ class LeadResponse(BaseModel):
     industry: Optional[str] = None
     employee_count_range: Optional[str] = None
     city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
     country: Optional[str] = None
 
     # Contact snapshot
@@ -141,6 +149,10 @@ class LeadImportRow(BaseModel):
     company_name: Optional[str] = Field(None, max_length=255)
     industry: Optional[str] = Field(None, max_length=100)
     city: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=50)
+    postal_code: Optional[str] = Field(None, max_length=20)
+    address_line_1: Optional[str] = Field(None, max_length=255)
+    address_line_2: Optional[str] = Field(None, max_length=255)
     country: Optional[str] = Field(None, max_length=100)
 
 

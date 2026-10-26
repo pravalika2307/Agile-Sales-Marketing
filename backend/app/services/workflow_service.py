@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
+from types import SimpleNamespace
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -346,6 +348,13 @@ def save_campaign_workflow(
         elif node.type == "condition":
             cfg = node.config or {}
             last_condition = cfg.get("condition_type")
+        elif node.type in ("voice", "sms", "physical_mail"):
+            # Multi-channel steps (voice, sms, physical_mail) are authoritatively maintained in workflow_config.
+            # Increment step_num so subsequent email steps maintain their correct sequence order.
+            step_num += 1
+            accumulated_delay_days = 0
+            accumulated_delay_hours = 0
+            last_condition = None
         elif node.type == "email":
             cfg = node.config or {}
             subject = cfg.get("subject") or cfg.get("subject_template")
@@ -359,6 +368,7 @@ def save_campaign_workflow(
             if step_num in existing_by_num:
                 # Update existing step
                 step_record = existing_by_num[step_num]
+                step_record.step_type = "email"
                 step_record.subject_template = subject
                 step_record.body_template = body
                 step_record.delay_days = delay_days
@@ -588,4 +598,144 @@ def preview_template_content(
         validation_errors=validation_errors,
         safe_fallbacks_applied=fallbacks_applied,
         is_sample=is_sample,
+    )
+
+
+
+def get_campaign_ordered_steps(db: Session, campaign: Campaign) -> List[Any]:
+    """
+    Returns ordered sequence steps for a campaign.
+    Authoritative source: visual workflow graph in campaign.workflow_config.
+    Maintains delay accumulation and condition linking.
+    Falls back to persisted CampaignStep rows for legacy email-only campaigns.
+    """
+    if campaign.workflow_config and isinstance(campaign.workflow_config, dict):
+        nodes = campaign.workflow_config.get("nodes", [])
+        edges = campaign.workflow_config.get("edges", [])
+
+        # Filter valid node dictionaries
+        node_map = {n.get("id"): n for n in nodes if isinstance(n, dict) and n.get("id")}
+
+        # Build edge adjacency: source -> target
+        edge_targets: Dict[str, str] = {}
+        for edge in edges:
+            if isinstance(edge, dict):
+                src = edge.get("source")
+                tgt = edge.get("target")
+                if src and tgt and src not in edge_targets:
+                    edge_targets[src] = tgt
+
+        # Traverse starting from start node
+        start_node = next((n for n in nodes if isinstance(n, dict) and n.get("type") == "start"), None)
+        ordered_node_ids: List[str] = []
+        visited = set()
+
+        if start_node:
+            curr_id = start_node.get("id")
+            visited.add(curr_id)
+            while curr_id and curr_id in edge_targets:
+                next_id = edge_targets[curr_id]
+                if next_id in visited:
+                    break
+                visited.add(next_id)
+                ordered_node_ids.append(next_id)
+                curr_id = next_id
+
+        # Append any unvisited action nodes (e.g. alternate branches or disconnected)
+        for n in nodes:
+            if isinstance(n, dict) and n.get("type") != "start":
+                nid = n.get("id")
+                if nid and nid not in visited:
+                    visited.add(nid)
+                    ordered_node_ids.append(nid)
+
+        steps = []
+        step_idx = 1
+        acc_delay_days = 0
+        acc_delay_hours = 0
+        last_condition = None
+
+        now = datetime.now(timezone.utc)
+        base_time = campaign.created_at or now
+
+        for nid in ordered_node_ids:
+            node = node_map.get(nid)
+            if not node:
+                continue
+            ntype = (node.get("type") or "").lower()
+            cfg = node.get("config", {}) or {}
+
+            if ntype == "wait":
+                dur = int(cfg.get("duration", 0) or 0)
+                unit = (cfg.get("unit") or "days").lower()
+                if unit == "days":
+                    acc_delay_days += dur
+                elif unit == "hours":
+                    acc_delay_hours += dur
+                elif unit == "minutes":
+                    acc_delay_hours += max(1, dur // 60) if dur >= 60 else 0
+                continue
+            elif ntype == "condition":
+                last_condition = cfg.get("condition_type")
+                continue
+            elif ntype in ("email", "sms", "voice", "physical_mail"):
+                total_delay_days = int(cfg.get("delay_days", 0) or 0) + acc_delay_days
+                total_delay_hours = int(cfg.get("delay_hours", 0) or 0) + acc_delay_hours
+                if total_delay_hours >= 24:
+                    total_delay_days += total_delay_hours // 24
+                    total_delay_hours = total_delay_hours % 24
+
+                # Determine templates
+                if ntype == "email":
+                    subj = cfg.get("subject") or cfg.get("subject_template")
+                    body = cfg.get("body") or cfg.get("body_template")
+                elif ntype == "sms":
+                    subj = None
+                    body = cfg.get("body") or cfg.get("body_template")
+                elif ntype == "voice":
+                    subj = node.get("title") or f"Step {step_idx}: AI Voice SDR Call"
+                    body = cfg.get("body") or cfg.get("script") or None
+                elif ntype == "physical_mail":
+                    creative_id = cfg.get("poplar_creative_id")
+                    subj = f"Poplar Creative: {creative_id}" if creative_id else f"Step {step_idx}: Physical Mail"
+                    body = cfg.get("body") or None
+                else:
+                    subj = None
+                    body = None
+
+                deterministic_id = uuid.uuid5(campaign.id, f"step_{step_idx}_{nid}")
+                step_obj = SimpleNamespace(
+                    id=deterministic_id,
+                    organization_id=campaign.organization_id,
+                    campaign_id=campaign.id,
+                    step_number=step_idx,
+                    step_type=ntype,
+                    subject_template=subj,
+                    body_template=body,
+                    delay_days=total_delay_days,
+                    delay_hours=total_delay_hours,
+                    is_active=bool(cfg.get("is_active", True)),
+                    config=cfg,
+                    condition_type=last_condition or cfg.get("condition_type"),
+                    created_at=base_time,
+                    updated_at=campaign.updated_at or base_time,
+                )
+                steps.append(step_obj)
+                step_idx += 1
+                acc_delay_days = 0
+                acc_delay_hours = 0
+                last_condition = None
+
+        if steps:
+            return steps
+
+    # Fallback to persisted CampaignStep rows
+    return (
+        db.query(CampaignStep)
+        .filter(
+            CampaignStep.campaign_id == campaign.id,
+            CampaignStep.organization_id == campaign.organization_id,
+        )
+        .order_by(CampaignStep.step_number.asc())
+        .all()
     )

@@ -77,8 +77,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 2. Validate token structure and expiration (never rely solely on cookie presence)
-  const authToken = request.cookies.get("auth_token")?.value;
+  // 2. Validate token structure and expiration (support cookie and Authorization header)
+  const authHeader = request.headers.get("authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : undefined;
+  const authToken = request.cookies.get("auth_token")?.value || bearerToken;
   const isAuthenticated = isTokenStructureValidAndUnexpired(authToken);
   const hasStaleCookie = Boolean(authToken && !isAuthenticated);
 

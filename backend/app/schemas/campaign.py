@@ -37,7 +37,7 @@ class CampaignCreate(BaseModel):
         if v is None:
             return "email"
         clean = v.strip().lower()
-        allowed = {"email", "sms", "voice"}
+        allowed = {"email", "sms", "voice", "physical_mail"}
         if clean not in allowed:
             raise ValueError(
                 f"Invalid first_step_channel '{v}'. Allowed channels: {sorted(list(allowed))}"

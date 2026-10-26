@@ -17,7 +17,14 @@ import {
 } from "@/services/campaignService";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 import { Modal } from "@/components/ui/modal";
+import { PhysicalMailPreflightModal } from "./physical-mail-preflight-modal";
+import { simulateMockCallCompletion } from "@/services/voiceService";
+import {
+  getChannelCapabilities,
+  ChannelCapability,
+} from "@/services/entitlementsService";
 import { Input } from "@/components/ui/input";
 import {
   X,
@@ -43,6 +50,8 @@ import {
   Check,
   AlertTriangle,
   MessageSquare,
+  PhoneCall,
+  ExternalLink,
 } from "lucide-react";
 import {
   ContactListItem,
@@ -109,8 +118,48 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
   const [deleteCampaignError, setDeleteCampaignError] = React.useState<string | null>(null);
 
   // Sequence Execution
+  const [isPhysicalMailModalOpen, setIsPhysicalMailModalOpen] = React.useState(false);
   const [isExecutingPlanning, setIsExecutingPlanning] = React.useState(false);
   const [sendingOutreachId, setSendingOutreachId] = React.useState<string | null>(null);
+  const [simulatingOutreachId, setSimulatingOutreachId] = React.useState<string | null>(null);
+
+  // Channel capabilities & entitlement state
+  const [channelCapabilities, setChannelCapabilities] = React.useState<Record<string, ChannelCapability>>({});
+
+  React.useEffect(() => {
+    if (isOpen) {
+      getChannelCapabilities()
+        .then((res) => {
+          const map: Record<string, ChannelCapability> = {};
+          for (const ch of res.channels || []) {
+            map[ch.channel] = ch;
+          }
+          setChannelCapabilities(map);
+        })
+        .catch((err) => {
+          console.warn("Could not load channel capabilities in drawer:", err);
+        });
+    }
+  }, [isOpen]);
+
+  const uniqueChannels = React.useMemo(() => {
+    if (!campaign) return ["email"];
+    const found = new Set<string>();
+    for (const step of campaign.steps || []) {
+      if (["email", "voice", "sms", "physical_mail"].includes(step.stepType)) {
+        found.add(step.stepType);
+      }
+    }
+    for (const n of campaign.workflowConfig?.nodes || []) {
+      if (["email", "voice", "sms", "physical_mail"].includes(n.type)) {
+        found.add(n.type);
+      }
+    }
+    if (found.size === 0) {
+      found.add("email");
+    }
+    return Array.from(found);
+  }, [campaign]);
 
   // Attached Lists State
   const [attachedLists, setAttachedLists] = React.useState<ContactListItem[]>([]);
@@ -396,6 +445,47 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
     }
   };
 
+  // Simulate mock voice call completion
+  const handleSimulateMockVoiceCompletion = async (outreachId: string, outcome: string) => {
+    setSimulatingOutreachId(outreachId);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const res = await simulateMockCallCompletion({
+        outreach_id: outreachId,
+        outcome,
+      });
+
+      if (res.duplicate) {
+        setActionSuccess(
+          "Simulated call completion already processed (idempotent duplicate skipped)."
+        );
+      } else if (res.followup_email_created) {
+        setActionSuccess(
+          `Mock voice call completed (${outcome}). Step 2 follow-up email created with booking link.`
+        );
+      } else {
+        setActionSuccess(
+          `Mock voice call completed with outcome "${outcome}". Outreach transitioned to terminal state.`
+        );
+      }
+
+      if (campaign) {
+        await refreshCampaign(campaign.id);
+      }
+      onCampaignUpdated?.();
+    } catch (err: unknown) {
+      setActionError(
+        err instanceof Error ? err.message : "Failed to complete simulated voice call"
+      );
+      if (campaign) {
+        await refreshCampaign(campaign.id);
+      }
+    } finally {
+      setSimulatingOutreachId(null);
+    }
+  };
+
   // Send single outreach message
   const handleSendOutreach = async (outreachId: string) => {
     setSendingOutreachId(outreachId);
@@ -601,6 +691,18 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                 <span>Workflow Editor</span>
               </Button>
             )}
+            {(campaign.steps.some((s) => s.stepType === "physical_mail") || campaign.channels?.includes("physical_mail")) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsPhysicalMailModalOpen(true)}
+                className="text-xs inline-flex items-center gap-1 border-rose-300 text-rose-700 hover:bg-rose-50"
+                title="Direct Mail Pre-Flight & Test Dispatch"
+              >
+                <Send className="w-3 h-3 text-rose-600" />
+                <span>Direct Mail</span>
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -671,16 +773,61 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-500">Supported Channels</span>
-                <span className="text-slate-800 font-medium flex items-center gap-2">
-                  <span className="flex items-center gap-1">
-                    <Mail className="w-3.5 h-3.5 text-slate-400" />
-                    Email
-                  </span>
-                  <span className="text-slate-300">•</span>
-                  <span className="flex items-center gap-1 text-emerald-700">
-                    <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                    SMS (Twilio)
-                  </span>
+                <span className="text-slate-800 font-medium flex items-center gap-2 flex-wrap justify-end">
+                  {uniqueChannels.map((ch, idx) => {
+                    const isVoiceUnlocked = channelCapabilities["voice"]?.is_unlocked ?? false;
+                    const isSmsUnlocked = channelCapabilities["sms"]?.is_unlocked ?? false;
+                    const isMailUnlocked = channelCapabilities["physical_mail"]?.is_unlocked ?? false;
+
+                    return (
+                      <React.Fragment key={ch}>
+                        {idx > 0 && <span className="text-slate-300">•</span>}
+                        {ch === "email" && (
+                          <span className="flex items-center gap-1 text-slate-700">
+                            <Mail className="w-3.5 h-3.5 text-slate-400" />
+                            Email
+                          </span>
+                        )}
+                        {ch === "voice" && (
+                          <span
+                            className={`flex items-center gap-1 ${
+                              isVoiceUnlocked ? "text-purple-700" : "text-amber-700"
+                            }`}
+                            title={
+                              isVoiceUnlocked
+                                ? "Voice SDR Enabled (Retell AI)"
+                                : "Administrative channel upgrade required"
+                            }
+                          >
+                            <PhoneCall className={`w-3.5 h-3.5 ${isVoiceUnlocked ? "text-purple-600" : "text-amber-600"}`} />
+                            Voice SDR {isVoiceUnlocked ? "(Retell AI)" : "(Upgrade Required)"}
+                          </span>
+                        )}
+                        {ch === "sms" && (
+                          <span
+                            className={`flex items-center gap-1 ${
+                              isSmsUnlocked ? "text-emerald-700" : "text-amber-700"
+                            }`}
+                            title={isSmsUnlocked ? "SMS Enabled (Twilio)" : "Administrative channel upgrade required"}
+                          >
+                            <MessageSquare className={`w-3.5 h-3.5 ${isSmsUnlocked ? "text-emerald-600" : "text-amber-600"}`} />
+                            SMS {isSmsUnlocked ? "(Twilio)" : "(Upgrade Required)"}
+                          </span>
+                        )}
+                        {ch === "physical_mail" && (
+                          <span
+                            className={`flex items-center gap-1 ${
+                              isMailUnlocked ? "text-rose-700" : "text-amber-700"
+                            }`}
+                            title={isMailUnlocked ? "Direct Mail Enabled (Poplar)" : "Administrative channel upgrade required"}
+                          >
+                            <Send className={`w-3.5 h-3.5 ${isMailUnlocked ? "text-rose-600" : "text-amber-600"}`} />
+                            Direct Mail {isMailUnlocked ? "(Poplar)" : "(Upgrade Required)"}
+                          </span>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -722,46 +869,177 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
               </div>
             ) : (
               <div className="space-y-2.5">
-                {campaign.steps.map((step) => (
-                  <div
-                    key={step.id}
-                    className="p-3.5 rounded-lg border border-slate-200/80 bg-white shadow-xs space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded bg-header text-white font-bold text-[10px] flex items-center justify-center">
-                          {step.stepNumber}
-                        </span>
-                        <span className="font-semibold text-slate-800 text-xs flex items-center gap-1">
-                          <Mail className="w-3 h-3 text-slate-400" />
-                          Step {step.stepNumber}: Email Outreach
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-slate-400">
-                        Delay: {step.delayDays}d {step.delayHours}h
-                      </span>
-                    </div>
+                {campaign.steps.map((step) => {
+                  const isVoice = step.stepType === "voice";
+                  const isWait = step.stepType === "wait";
+                  const isCondition = step.stepType === "condition";
+                  const isSms = step.stepType === "sms";
+                  const isPhysicalMail = step.stepType === "physical_mail";
+                  const isVoiceUnlocked = channelCapabilities["voice"]?.is_unlocked ?? false;
 
-                    <div className="pl-7 space-y-1 text-[11px]">
-                      <div>
-                        <span className="text-slate-400 font-medium">Subject: </span>
-                        <span className="text-slate-700 font-mono">
-                          {step.subjectTemplate || "— (No subject configured)"}
+                  return (
+                    <div
+                      key={step.id}
+                      className="p-3.5 rounded-lg border border-slate-200/80 bg-white shadow-xs space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-5 h-5 rounded font-bold text-[10px] flex items-center justify-center ${
+                              isVoice
+                                ? "bg-purple-600 text-white"
+                                : isWait
+                                ? "bg-amber-500 text-white"
+                                : isCondition
+                                ? "bg-indigo-600 text-white"
+                                : isSms
+                                ? "bg-emerald-600 text-white"
+                                : isPhysicalMail
+                                ? "bg-rose-600 text-white"
+                                : "bg-header text-white"
+                            }`}
+                          >
+                            {step.stepNumber}
+                          </span>
+                          <span className="font-semibold text-slate-800 text-xs flex items-center gap-1.5">
+                            {isVoice && <PhoneCall className="w-3.5 h-3.5 text-purple-600" />}
+                            {isWait && <Clock className="w-3.5 h-3.5 text-amber-500" />}
+                            {isCondition && <GitBranch className="w-3.5 h-3.5 text-indigo-500" />}
+                            {isSms && <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />}
+                            {isPhysicalMail && <Send className="w-3.5 h-3.5 text-rose-500" />}
+                            {!isVoice && !isWait && !isCondition && !isSms && !isPhysicalMail && (
+                              <Mail className="w-3.5 h-3.5 text-slate-400" />
+                            )}
+                            {step.title || (
+                              isVoice
+                                ? `Step ${step.stepNumber}: AI Voice SDR Call`
+                                : isWait
+                                ? `Wait Delay: ${step.delayDays}d ${step.delayHours}h`
+                                : isCondition
+                                ? `Condition Check: ${step.conditionType || "Prospect Engagement"}`
+                                : isSms
+                                ? `Step ${step.stepNumber}: SMS Outreach`
+                                : isPhysicalMail
+                                ? `Step ${step.stepNumber}: Physical Mail`
+                                : `Step ${step.stepNumber}: Email Outreach`
+                            )}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400">
+                          {isWait
+                            ? `Duration: ${step.delayDays}d ${step.delayHours}h`
+                            : `Delay: ${step.delayDays}d ${step.delayHours}h`}
                         </span>
                       </div>
-                      {step.bodyTemplate && (
-                        <div className="pt-1">
-                          <span className="text-slate-400 font-medium block mb-0.5">
-                            Template Content:
-                          </span>
-                          <p className="text-slate-600 font-mono text-[10px] bg-slate-50 p-2 rounded border border-slate-200/60 whitespace-pre-wrap">
-                            {step.bodyTemplate}
-                          </p>
+
+                      {/* Voice SDR Step Details & Entitlement Warning */}
+                      {isVoice && (
+                        <div className="pl-7 space-y-1.5 text-[11px]">
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400 font-medium">Provider:</span>
+                            <span className="text-purple-800 font-semibold">Retell AI Voice SDR</span>
+                            <span className="text-slate-300">•</span>
+                            <span className="text-slate-500">Agent: {String(step.config?.agent_type || "Outbound SDR")}</span>
+                          </div>
+                          {!isVoiceUnlocked && (
+                            <div className="mt-2 p-2.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[11px] space-y-1">
+                              <div className="flex items-center gap-1.5 font-semibold text-amber-900">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                <span>AI Voice SDR Channel Upgrade Required</span>
+                              </div>
+                              <p className="text-[10.5px] text-amber-700 leading-relaxed">
+                                AI Voice SDR calls are configured as Step 1 of this workflow, but live voice calling requires an administrative channel upgrade for this organization.
+                              </p>
+                              <Link
+                                href="/settings/entitlements"
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 pt-0.5"
+                              >
+                                <span>Request Administrative Upgrade in Settings</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </Link>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Wait Step Details */}
+                      {isWait && (
+                        <div className="pl-7 text-[11px] text-slate-500">
+                          Cadence delay: Sequence pauses for {step.delayDays} day(s) before evaluating conditions or dispatching subsequent touches.
+                        </div>
+                      )}
+
+                      {/* Condition Step Details */}
+                      {isCondition && (
+                        <div className="pl-7 text-[11px] text-slate-500">
+                          Branching rule: Evaluates prospect engagement ({step.conditionType || "email_replied"}) to route responses.
+                        </div>
+                      )}
+
+                      {/* SMS Step Details */}
+                      {isSms && (
+                        <div className="pl-7 space-y-1 text-[11px]">
+                          {step.bodyTemplate && (
+                            <div className="pt-1">
+                              <span className="text-slate-400 font-medium block mb-0.5">SMS Body:</span>
+                              <p className="text-slate-600 font-mono text-[10px] bg-slate-50 p-2 rounded border border-slate-200/60 whitespace-pre-wrap">
+                                {step.bodyTemplate}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Physical Mail Step Details */}
+                      {isPhysicalMail && (
+                        <div className="pl-7 space-y-2 text-[11px]">
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400 font-medium">Provider:</span>
+                            <span className="text-rose-700 font-semibold">Poplar Programmatic Direct Mail</span>
+                            <span className="text-slate-300">•</span>
+                            <span className="text-slate-500">Format: Postcard / Demand Letter</span>
+                          </div>
+                          <div className="p-2.5 rounded bg-rose-50/50 border border-rose-200/60 text-slate-700 space-y-1.5">
+                            <p className="text-[10.5px]">
+                              Direct mail pieces are generated using automated USPS CASS address verification and personalized merge tags.
+                            </p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setIsPhysicalMailModalOpen(true)}
+                              className="text-xs border-rose-300 text-rose-700 hover:bg-rose-100/60 bg-white"
+                            >
+                              <Send className="w-3 h-3 mr-1 text-rose-600" />
+                              Launch Direct Mail Pre-Flight & Test Dispatch
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Email Step Details */}
+                      {!isVoice && !isWait && !isCondition && !isSms && !isPhysicalMail && (
+                        <div className="pl-7 space-y-1 text-[11px]">
+                          <div>
+                            <span className="text-slate-400 font-medium">Subject: </span>
+                            <span className="text-slate-700 font-mono">
+                              {step.subjectTemplate || "— (No subject configured)"}
+                            </span>
+                          </div>
+                          {step.bodyTemplate && (
+                            <div className="pt-1">
+                              <span className="text-slate-400 font-medium block mb-0.5">
+                                Template Content:
+                              </span>
+                              <p className="text-slate-600 font-mono text-[10px] bg-slate-50 p-2 rounded border border-slate-200/60 whitespace-pre-wrap">
+                                {step.bodyTemplate}
+                              </p>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1090,11 +1368,59 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                       </div>
                     )}
 
+                    {/* Simulated Voice Call Control Panel */}
+                    {outreach.channel === "voice" && outreach.status === "sending" && (
+                      <div className="p-2.5 bg-blue-50/70 border border-blue-200/80 rounded-lg space-y-2 mt-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-medium text-blue-900 flex items-center gap-1.5">
+                            <PhoneCall className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+                            Mock SDR Call In-Flight ({outreach.providerMessageId || "Simulated"})
+                          </span>
+                          <span className="text-[10px] text-blue-700 bg-blue-100 px-2 py-0.5 rounded font-mono font-medium">
+                            Test Simulation
+                          </span>
+                        </div>
+                        <p className="text-[10.5px] text-blue-800 leading-relaxed">
+                          Outbound live calling is safely disabled. Choose an outcome to complete call simulation and trigger automated follow-up:
+                        </p>
+                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            disabled={simulatingOutreachId === outreach.id}
+                            onClick={() => handleSimulateMockVoiceCompletion(outreach.id, "INTERESTED")}
+                            className="text-[10.5px] h-6 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1"
+                          >
+                            <Check className="w-3 h-3" />
+                            <span>{simulatingOutreachId === outreach.id ? "Completing..." : "Simulate Prospect Answered (Interested)"}</span>
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={simulatingOutreachId === outreach.id}
+                            onClick={() => handleSimulateMockVoiceCompletion(outreach.id, "NOT_INTERESTED")}
+                            className="text-[10.5px] h-6 px-2 text-slate-700"
+                          >
+                            Not Interested
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={simulatingOutreachId === outreach.id}
+                            onClick={() => handleSimulateMockVoiceCompletion(outreach.id, "NO_ANSWER")}
+                            className="text-[10.5px] h-6 px-2 text-rose-700"
+                          >
+                            No Answer
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Send action */}
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-[10px] text-slate-500 font-mono">
                         {outreach.provider?.startsWith("mock")
-                          ? `Provider: Mock (${outreach.channel === "sms" ? "Twilio SMS Simulation" : "Email Simulation"})`
+                          ? `Provider: Mock (${outreach.channel === "sms" ? "Twilio SMS Simulation" : outreach.channel === "voice" ? "Retell Voice Simulation" : "Email Simulation"})`
                           : outreach.provider
                           ? `Provider: ${outreach.provider}`
                           : `Channel: ${outreach.channel.toUpperCase()}`}
@@ -1120,6 +1446,8 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                               ? "Sending..."
                               : outreach.channel === "sms"
                               ? "Send SMS (Mock)"
+                              : outreach.channel === "voice"
+                              ? "Simulate Voice Call"
                               : "Send Email"}
                           </span>
                         </Button>
@@ -1527,6 +1855,17 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
           )}
         </div>
       </Modal>
+      {/* Modal: Direct Mail Pre-Flight & Test Dispatch */}
+      <PhysicalMailPreflightModal
+        isOpen={isPhysicalMailModalOpen}
+        onClose={() => setIsPhysicalMailModalOpen(false)}
+        campaignId={campaign.id}
+        campaignName={campaign.name}
+        onCompleted={async () => {
+          if (campaign) await refreshCampaign(campaign.id);
+          onCampaignUpdated?.();
+        }}
+      />
     </div>
   );
 };

@@ -18,6 +18,7 @@ from .pipeline import router as pipeline_router
 from .sms import router as sms_router
 from .tracking import router as tracking_router, tracking_webhook_router
 from .voice_webhook import router as voice_webhook_router
+from .physical_mail import router as physical_mail_router
 
 from .analytics import router as analytics_router
 from .email_templates import router as email_templates_router
@@ -43,6 +44,7 @@ api_router.include_router(sms_router)
 api_router.include_router(tracking_router)
 api_router.include_router(tracking_webhook_router)
 api_router.include_router(voice_webhook_router)
+api_router.include_router(physical_mail_router)
 api_router.include_router(hubspot_router)
 api_router.include_router(icp_router)
 api_router.include_router(leads_router)

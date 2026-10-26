@@ -35,6 +35,16 @@ from app.schemas.contact_list import (
     CampaignListSyncResponse,
     ContactListResponse,
 )
+from app.schemas.campaign_ai import (
+    AICampaignDraftRequest,
+    AICampaignDraftResponse,
+)
+from app.services.campaign_ai_service import (
+    AICampaignConfigurationError,
+    AICampaignDraftError,
+    AICampaignGeneratorService,
+    AICampaignValidationError,
+)
 from app.schemas.email_template import AIEmailGenerateRequest, AIEmailGenerateResponse
 from app.services.campaign_steps.ai_template_service import (
     AITemplateConfigurationError,
@@ -127,6 +137,47 @@ async def generate_ai_email_endpoint(
             detail=str(exc),
         )
     except AITemplateGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        )
+
+
+@router.post(
+    "/generate-draft",
+    response_model=AICampaignDraftResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Generate editable campaign draft using AI",
+    description="Generates an end-to-end multi-step campaign draft from a short natural-language description using AWS Bedrock Claude Sonnet 4.5.",
+)
+async def generate_campaign_draft_endpoint(
+    payload: AICampaignDraftRequest,
+    current_org: Organization = Depends(get_current_organization),
+    db: Session = Depends(get_db),
+) -> AICampaignDraftResponse:
+    """
+    Accepts campaign description, audience, objective, and channel preferences.
+    Audits channel entitlements, enforces personalization and booking link safety,
+    validates the workflow schema, and saves the campaign strictly in 'draft' status.
+    """
+    service = AICampaignGeneratorService(db=db)
+    try:
+        return service.generate_campaign_draft(
+            org_id=current_org.id,
+            request=payload,
+            force_mock=payload.force_mock,
+        )
+    except AICampaignConfigurationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+    except AICampaignValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        )
+    except AICampaignDraftError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
@@ -512,7 +563,6 @@ async def generate_campaign_email_endpoint(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         )
-
 
 
 # ── Campaign List Associations ───────────────────────────────────────────────

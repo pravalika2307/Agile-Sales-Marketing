@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.entitlement import (
     ALLOWED_CHANNELS,
     ChannelUpgradeRequest,
@@ -161,6 +162,62 @@ def _safe_query_upgrade_requests(db: Session, org_id: uuid.UUID) -> Dict[str, Ch
         return {}
 
 
+def is_internal_agile_organization(org: Optional[Organization]) -> bool:
+    """Returns True if the organization is Agile's internal organization."""
+    if not org:
+        return False
+    slug = (getattr(org, "slug", "") or "").lower().strip()
+    name = (getattr(org, "name", "") or "").lower().strip()
+    billing = (getattr(org, "billing_status", "") or "").lower().strip()
+    if billing in ("enterprise", "unlimited", "internal"):
+        return True
+    if slug in ("agile-sales-marketing-org", "agile-receivables-org"):
+        return True
+    if "agile receivables" in name or "agile sales" in name:
+        return True
+    return False
+
+
+def get_channel_provider_status(channel: str) -> Tuple[bool, str, bool]:
+    """
+    Returns (provider_configured, status_message, is_ready) for a given communication channel.
+    Distinguishes entitlement from real provider connection state.
+    """
+    ch = channel.lower().strip()
+    if ch == "email":
+        return True, "Provider Active (Microsoft Graph / SMTP)", True
+
+    if ch == "voice":
+        has_key = bool(settings.RETELL_API_KEY)
+        has_agent = bool(settings.RETELL_AGENT_ID)
+        is_live = getattr(settings, "is_retell_live_calling_allowed", False)
+        if has_key and has_agent:
+            msg = "Live Calling Active" if is_live else "Retell AI Test Sandbox Active (Simulated Dials)"
+            return True, msg, True
+        return False, "Retell API credentials required in settings", False
+
+    if ch == "physical_mail":
+        has_key = bool(settings.POPLAR_TEST_API_KEY or settings.POPLAR_API_KEY)
+        is_live = getattr(settings, "POPLAR_ALLOW_LIVE_SENDING", False)
+        if has_key:
+            msg = "Production Print Active" if is_live else "Poplar Test Sandbox Active (Zero Print Charges)"
+            return True, msg, True
+        return False, "Poplar API key required in settings", False
+
+    if ch == "sms":
+        has_twilio = bool(settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN)
+        is_live = getattr(settings, "TWILIO_ALLOW_LIVE_SENDING", False)
+        if has_twilio:
+            msg = "Twilio Live SMS Active" if is_live else "Twilio Test Mode Active (Safe Mock)"
+            return True, msg, True
+        return True, "Twilio Safe Simulation Active (Credentials Optional in Dev)", True
+
+    if ch == "ringless_voicemail":
+        return False, "Provider Under Development / Not Available", False
+
+    return False, "Unrecognized Channel Provider", False
+
+
 def get_tenant_channel_capabilities(
     db: Session,
     org_id: uuid.UUID,
@@ -174,7 +231,8 @@ def get_tenant_channel_capabilities(
         raise ValueError(f"Organization '{org_id}' not found.")
 
     billing_status = getattr(org, "billing_status", "trial") or "trial"
-    is_enterprise = billing_status.lower() in ("enterprise", "unlimited")
+    is_internal = is_internal_agile_organization(org)
+    is_enterprise = is_internal or (billing_status.lower() in ("enterprise", "unlimited"))
 
     # Read persistent entitlements & requests
     entitlements_by_channel = _safe_query_entitlements(db, org_id)
@@ -186,8 +244,24 @@ def get_tenant_channel_capabilities(
         ch_key = defn["channel"]
         ent = entitlements_by_channel.get(ch_key)
         pending_req = requests_by_channel.get(ch_key)
+        prov_conf, prov_msg, prov_ready = get_channel_provider_status(ch_key)
 
-        if ch_key == "email":
+        if ch_key == "ringless_voicemail":
+            # Genuinely unintegrated provider: report honest unavailable status
+            if is_enterprise:
+                status = "included"
+                is_unlocked = True
+                quota = 0
+                usage = 0
+            else:
+                status = "upgrade_required"
+                is_unlocked = False
+                quota = None
+                usage = 0
+            prov_conf = False
+            prov_ready = False
+            prov_msg = "Provider Under Development / Not Available" 
+        elif ch_key == "email":
             status = "included"
             is_unlocked = True
             quota = None
@@ -195,7 +269,7 @@ def get_tenant_channel_capabilities(
         elif is_enterprise:
             status = "included"
             is_unlocked = True
-            quota = ent.allocated_quota if ent else None
+            quota = ent.allocated_quota if ent else 10000
             usage = ent.current_usage if ent else 0
         elif ent and ent.is_unlocked:
             status = ent.status or "approved"
@@ -231,6 +305,9 @@ def get_tenant_channel_capabilities(
                 limits=defn["limits"],
                 allocated_quota=quota,
                 current_usage=usage,
+                provider_configured=prov_conf,
+                provider_status_message=prov_msg,
+                is_provider_ready=prov_ready,
             )
         )
 
@@ -532,10 +609,14 @@ def is_channel_unlocked_for_tenant(
     ch = channel.strip().lower()
     if ch == "email":
         return True
+    if ch == "ringless_voicemail":
+        return False  # Unintegrated provider
 
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         return False
+    if is_internal_agile_organization(org):
+        return True
     if getattr(org, "billing_status", "trial") in ("enterprise", "unlimited"):
         return True
 

@@ -583,16 +583,30 @@ def convert_lead_to_crm(
             else:
                 first_name = raw_first or "Unknown"
                 last_name = raw_last or ""
-            contact = Contact(
-                organization_id=current_org.id,
-                company_id=company.id if company else None,
-                first_name=first_name,
-                last_name=last_name,
-                email=norm_lead_email,
-                phone=lead.phone,
-                job_title=lead.job_title,
-                lead_status="qualified" if lead.qualification_status == "qualified" else "new",
-            )
+            contact_kwargs = {
+                "organization_id": current_org.id,
+                "company_id": company.id if company else None,
+                "first_name": first_name,
+                "last_name": last_name,
+                "email": norm_lead_email,
+                "phone": lead.phone,
+                "job_title": lead.job_title,
+                "lead_status": "qualified" if lead.qualification_status == "qualified" else "new",
+            }
+            if hasattr(Contact, "address_line_1") and hasattr(lead, "address_line_1"):
+                contact_kwargs["address_line_1"] = getattr(lead, "address_line_1", None)
+            if hasattr(Contact, "address_line_2") and hasattr(lead, "address_line_2"):
+                contact_kwargs["address_line_2"] = getattr(lead, "address_line_2", None)
+            if hasattr(Contact, "city") and hasattr(lead, "city"):
+                contact_kwargs["city"] = getattr(lead, "city", None)
+            if hasattr(Contact, "state") and hasattr(lead, "state"):
+                contact_kwargs["state"] = getattr(lead, "state", None)
+            if hasattr(Contact, "postal_code") and hasattr(lead, "postal_code"):
+                contact_kwargs["postal_code"] = getattr(lead, "postal_code", None)
+            if hasattr(Contact, "country") and hasattr(lead, "country"):
+                contact_kwargs["country"] = getattr(lead, "country", None) or "US"
+
+            contact = Contact(**contact_kwargs)
             db.add(contact)
             db.flush()
             contact_created = True
@@ -698,6 +712,10 @@ def import_leads(
             industry=(row.industry or "").strip() or None,
             city=(row.city or "").strip() or None,
             country=(row.country or "").strip() or None,
+            address_line_1=(row.address_line_1 or "").strip() or None if hasattr(Lead, "address_line_1") else None,
+            address_line_2=(row.address_line_2 or "").strip() or None if hasattr(Lead, "address_line_2") else None,
+            state=(row.state or "").strip() or None if hasattr(Lead, "state") else None,
+            postal_code=(row.postal_code or "").strip() or None if hasattr(Lead, "postal_code") else None,
             source="csv_import",
             status="new",
             qualification_status="new",

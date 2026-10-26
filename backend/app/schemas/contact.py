@@ -19,6 +19,12 @@ class ContactCreate(BaseModel):
     phone: Optional[str] = Field(None, max_length=50, description="Phone number")
     job_title: Optional[str] = Field(None, max_length=150, description="Job title")
     lead_status: Optional[str] = Field("new", description="Lead status (default: 'new')")
+    address_line_1: Optional[str] = Field(None, max_length=255, description="Street address line 1")
+    address_line_2: Optional[str] = Field(None, max_length=255, description="Apartment, suite, or unit")
+    city: Optional[str] = Field(None, max_length=100, description="City")
+    state: Optional[str] = Field(None, max_length=50, description="2-letter state abbreviation or region")
+    postal_code: Optional[str] = Field(None, max_length=20, description="ZIP or postal code")
+    country: Optional[str] = Field("US", max_length=100, description="Country code (default: US)")
 
     @field_validator("lead_status")
     @classmethod
@@ -42,6 +48,12 @@ class ContactUpdate(BaseModel):
     phone: Optional[str] = Field(None, max_length=50)
     job_title: Optional[str] = Field(None, max_length=150)
     lead_status: Optional[str] = None
+    address_line_1: Optional[str] = Field(None, max_length=255)
+    address_line_2: Optional[str] = Field(None, max_length=255)
+    city: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=50)
+    postal_code: Optional[str] = Field(None, max_length=20)
+    country: Optional[str] = Field(None, max_length=100)
 
     @field_validator("lead_status")
     @classmethod
@@ -69,6 +81,12 @@ class ContactResponse(BaseModel):
     phone: Optional[str]
     job_title: Optional[str]
     lead_status: str
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    country: Optional[str] = "US"
     created_at: datetime
     updated_at: datetime
     company: Optional[CompanyResponse] = None
