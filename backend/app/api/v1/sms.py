@@ -1,12 +1,15 @@
 """SMS API endpoints: Configuration status, phone validation, preview/segments, and Twilio delivery webhooks."""
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.api.deps import get_current_organization
 from app.core.config import settings
@@ -24,7 +27,9 @@ from app.services.sms.service import (
 )
 from app.services.sms.webhook import (
     WebhookSignatureVerificationError,
+    handle_twilio_webhook,
     process_twilio_delivery_callback,
+    process_twilio_inbound_message,
 )
 
 router = APIRouter(prefix="/sms", tags=["SMS"])
@@ -234,28 +239,47 @@ async def preview_sms_endpoint(
 @router.post(
     "/webhook",
     status_code=status.HTTP_200_OK,
-    summary="Twilio delivery status callback webhook",
-    description="Receives Twilio message status events, verifies X-Twilio-Signature, and idempotently updates outreach status.",
+    summary="Twilio messaging webhook (delivery callbacks & inbound SMS)",
+    description="Unified webhook endpoint for Twilio SMS delivery callbacks and inbound messages. Enforces cryptographic X-Twilio-Signature validation in all environments.",
 )
 async def twilio_webhook_callback(
     request: Request,
     x_twilio_signature: Optional[str] = Header(None, alias="X-Twilio-Signature"),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    # Extract form data sent by Twilio
-    form_data = await request.form()
-    payload = dict(form_data)
+    # Extract form/body data sent by Twilio without external multipart dependency
+    from urllib.parse import parse_qs
+    import json
 
-    request_url = str(request.url)
+    body_bytes = await request.body()
+    content_type = request.headers.get("content-type", "").lower()
+    payload: Dict[str, Any] = {}
 
-    # In local testing or test environments without signature, signature enforcement can be toggled
-    enforce_signature = bool(
-        settings.TWILIO_AUTH_TOKEN
-        and settings.ENVIRONMENT == "production"
-    )
+    if "application/json" in content_type:
+        try:
+            payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+        except Exception:
+            payload = {}
+    else:
+        try:
+            body_str = body_bytes.decode("utf-8", errors="replace")
+            parsed_dict = parse_qs(body_str, keep_blank_values=True)
+            payload = {k: v[0] if len(v) == 1 else v for k, v in parsed_dict.items()}
+        except Exception:
+            payload = {}
+
+    # Determine externally visible request URL (honoring reverse proxy/tunnel headers)
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    path = request.url.path
+    query = request.url.query
+    request_url = f"{proto}://{host}{path}" + (f"?{query}" if query else "")
+
+    # Consistently enforce signature verification when Twilio auth token is configured
+    enforce_signature = bool(settings.TWILIO_AUTH_TOKEN and settings.TWILIO_AUTH_TOKEN.strip())
 
     try:
-        result = process_twilio_delivery_callback(
+        result = handle_twilio_webhook(
             db=db,
             payload=payload,
             url=request_url,
@@ -264,14 +288,20 @@ async def twilio_webhook_callback(
         )
         return result
     except WebhookSignatureVerificationError as exc:
-        logger.warning("Twilio webhook rejected due to invalid signature: %s", exc)
+        logger.warning("Twilio webhook rejected due to invalid cryptographic signature: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=str(exc),
         )
-    except Exception as exc:
-        logger.error("Error processing Twilio status callback: %s", exc)
+    except ValueError as exc:
+        logger.warning("Malformed Twilio webhook payload: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to process status callback: {exc}",
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.error("Error processing Twilio messaging webhook: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process webhook event.",
         )

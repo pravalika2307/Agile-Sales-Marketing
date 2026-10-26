@@ -1,0 +1,39 @@
+import { NextResponse } from "next/server";
+import { extractAuthToken, getBackendUrl } from "@/lib/backend-auth";
+
+export async function GET(request: Request) {
+  try {
+    const backendUrl = getBackendUrl();
+    const token = extractAuthToken(request) || "";
+
+    const response = await fetch(`${backendUrl}/api/v1/integrations/linkedin/status`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      return NextResponse.json(
+        { error: errData.detail || errData.message || `Backend returned HTTP ${response.status}` },
+        { status: response.status }
+      );
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
+  } catch (error: any) {
+    console.error("LinkedIn status proxy error:", error);
+    const msg = error.name === "TimeoutError"
+      ? "Backend connection timed out after 15s"
+      : error.message || "Failed to connect to backend service";
+    return NextResponse.json(
+      { error: msg },
+      { status: 504 }
+    );
+  }
+}

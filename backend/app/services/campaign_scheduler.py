@@ -302,6 +302,16 @@ class CampaignSchedulerService:
                             if contact.company_id else None
                         )
                         step1_channel = getattr(step_1, "step_type", "email") or "email"
+                        if step1_channel == "sms":
+                            from app.services.sms.service import is_sms_suppressed
+                            suppressed, supp_reason = is_sms_suppressed(self.db, camp.organization_id, phone=contact.phone, contact=contact)
+                            if suppressed:
+                                result.details.append({
+                                    "campaign_contact_id": str(cc.id),
+                                    "action": "skipped_sms_suppression",
+                                    "reason": supp_reason,
+                                })
+                                continue
                         if step1_channel == "physical_mail":
                             rendered_subj = step_1.subject_template or "Poplar Direct Mail"
                             rendered_body = f"Physical mailing to {contact.postal_address_line1}, {contact.postal_city or ''}"
@@ -440,6 +450,16 @@ class CampaignSchedulerService:
                             if contact.company_id else None
                         )
                         next_channel = getattr(next_step, "step_type", "email") or "email"
+                        if next_channel == "sms":
+                            from app.services.sms.service import is_sms_suppressed
+                            suppressed, supp_reason = is_sms_suppressed(self.db, camp.organization_id, phone=contact.phone, contact=contact)
+                            if suppressed:
+                                result.details.append({
+                                    "campaign_contact_id": str(cc.id),
+                                    "action": "skipped_sms_suppression",
+                                    "reason": supp_reason,
+                                })
+                                continue
                         if next_channel == "physical_mail":
                             rendered_subj = next_step.subject_template or "Poplar Direct Mail"
                             rendered_body = f"Physical mailing to {contact.postal_address_line1}, {contact.postal_city or ''}"

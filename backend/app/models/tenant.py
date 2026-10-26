@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from app.models.icp import IdealCustomerProfile
     from app.models.lead import Lead
     from app.models.outreach import Outreach
+    from app.models.linkedin import LinkedInConnection
 
 
 class Organization(Base):
@@ -108,6 +109,12 @@ class Organization(Base):
     leads: Mapped[List[Lead]] = relationship(
         "Lead",
         back_populates="organization",
+        cascade="all, delete-orphan",
+    )
+    linkedin_connection: Mapped[Optional[LinkedInConnection]] = relationship(
+        "LinkedInConnection",
+        back_populates="organization",
+        uselist=False,
         cascade="all, delete-orphan",
     )
 

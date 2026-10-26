@@ -10,6 +10,7 @@ from .contact_lists import router as contact_lists_router
 from .deals import router as deals_router
 from .icp import router as icp_router
 from .integrations.hubspot import router as hubspot_router
+from .integrations.linkedin import router as linkedin_router
 from .leads import router as leads_router
 from .lead_research import router as lead_research_router
 from .routing_rules import router as routing_rules_router
@@ -46,6 +47,7 @@ api_router.include_router(tracking_webhook_router)
 api_router.include_router(voice_webhook_router)
 api_router.include_router(physical_mail_router)
 api_router.include_router(hubspot_router)
+api_router.include_router(linkedin_router)
 api_router.include_router(icp_router)
 api_router.include_router(leads_router)
 api_router.include_router(lead_research_router)
