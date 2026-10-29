@@ -12,8 +12,15 @@ import {
   getLinkedInStatus,
   getLinkedInAuthorizeUrl,
   disconnectLinkedIn,
+  getLinkedInCapabilities,
   LinkedInStatusResponse,
+  LinkedInCapabilitiesResponse,
 } from "@/services/linkedinService";
+import {
+  getPhysicalMailHealth,
+  getPhysicalMailStatus,
+  PhysicalMailHealth,
+} from "@/services/physicalMailService";
 import {
   Layers,
   RefreshCw,
@@ -25,6 +32,7 @@ import {
   DollarSign,
   ExternalLink,
   ShieldAlert,
+  ShieldCheck,
   ArrowRight,
   Database,
   Lock,
@@ -34,6 +42,12 @@ import {
   Bot,
   Radio,
   Sliders,
+  Mail,
+  FileText,
+  Calendar,
+  Send,
+  Copy,
+  Info,
 } from "lucide-react";
 
 export default function IntegrationsPage() {
@@ -49,6 +63,7 @@ export default function IntegrationsPage() {
 
   // LinkedIn OAuth State
   const [linkedinStatus, setLinkedinStatus] = React.useState<LinkedInStatusResponse | null>(null);
+  const [linkedinCapabilities, setLinkedinCapabilities] = React.useState<LinkedInCapabilitiesResponse | null>(null);
   const [isLinkedInLoading, setIsLinkedInLoading] = React.useState(true);
   const [isConnectingLinkedIn, setIsConnectingLinkedIn] = React.useState(false);
   const [isDisconnectingLinkedIn, setIsDisconnectingLinkedIn] = React.useState(false);
@@ -56,6 +71,11 @@ export default function IntegrationsPage() {
     type: "success" | "warning" | "error";
     message: string;
   } | null>(null);
+
+  // Poplar Direct Mail Health State
+  const [poplarHealth, setPoplarHealth] = React.useState<PhysicalMailHealth | null>(null);
+  const [isPoplarLoading, setIsPoplarLoading] = React.useState(true);
+  const [poplarError, setPoplarError] = React.useState<string | null>(null);
 
   const fetchStatus = React.useCallback(async () => {
     setIsLoading(true);
@@ -74,18 +94,63 @@ export default function IntegrationsPage() {
   const fetchLinkedInData = React.useCallback(async () => {
     setIsLinkedInLoading(true);
     try {
-      const lStatus = await getLinkedInStatus();
+      const [lStatus, lCaps] = await Promise.all([
+        getLinkedInStatus().catch((e) => {
+          console.warn("LinkedIn status error:", e);
+          return {
+            configured: false,
+            connected: false,
+            status: "not_configured" as const,
+            message: e.message || "Unable to retrieve status",
+          };
+        }),
+        getLinkedInCapabilities().catch((e) => {
+          console.warn("LinkedIn capabilities error:", e);
+          return null;
+        }),
+      ]);
       setLinkedinStatus(lStatus);
+      setLinkedinCapabilities(lCaps);
     } catch (err: any) {
-      console.warn("LinkedIn status check notice:", err);
-      setLinkedinStatus({
-        configured: false,
-        connected: false,
-        status: "not_configured",
-        message: err.message || "Unable to retrieve LinkedIn status.",
-      });
+      console.warn("LinkedIn data fetch notice:", err);
     } finally {
       setIsLinkedInLoading(false);
+    }
+  }, []);
+
+  const fetchPoplarHealth = React.useCallback(async () => {
+    setIsPoplarLoading(true);
+    setPoplarError(null);
+    try {
+      const health = await getPhysicalMailHealth();
+      setPoplarHealth(health);
+      if (!health.connected) {
+        setPoplarError(health.error || health.message || "Poplar API connection failed");
+      }
+    } catch (err: any) {
+      console.warn("Poplar health check notice:", err);
+      const errMsg = err.message || "Failed to query Poplar API";
+      setPoplarError(errMsg);
+      try {
+        const statusData = await getPhysicalMailStatus();
+        setPoplarHealth({
+          configured: statusData.configured,
+          connected: false,
+          environment: statusData.environment || "test",
+          allow_live_sending: statusData.allow_live_sending,
+          message: errMsg,
+        });
+      } catch {
+        setPoplarHealth({
+          configured: false,
+          connected: false,
+          environment: "test",
+          allow_live_sending: false,
+          message: errMsg,
+        });
+      }
+    } finally {
+      setIsPoplarLoading(false);
     }
   }, []);
 
@@ -110,7 +175,8 @@ export default function IntegrationsPage() {
     }
     fetchStatus();
     fetchLinkedInData();
-  }, [fetchStatus, fetchLinkedInData]);
+    fetchPoplarHealth();
+  }, [fetchStatus, fetchLinkedInData, fetchPoplarHealth]);
 
   const handleConnectLinkedIn = async () => {
     setIsConnectingLinkedIn(true);
@@ -291,12 +357,13 @@ export default function IntegrationsPage() {
               onClick={() => {
                 fetchStatus();
                 fetchLinkedInData();
+                fetchPoplarHealth();
               }}
-              disabled={isLoading || isSyncing || isLinkedInLoading}
+              disabled={isLoading || isSyncing || isLinkedInLoading || isPoplarLoading}
               className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50 shadow-xs"
               title="Refresh connection status"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading || isLinkedInLoading ? "animate-spin text-agile-red" : "text-slate-500"}`} />
+              <RefreshCw className={`w-4 h-4 ${isLoading || isLinkedInLoading || isPoplarLoading ? "animate-spin text-agile-red" : "text-slate-500"}`} />
               <span>Refresh</span>
             </button>
 
@@ -672,6 +739,217 @@ export default function IntegrationsPage() {
           </div>
         </div>
 
+        {/* Poplar Direct Mail Card */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+          <div className="p-6 sm:p-7 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-start gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 shrink-0 shadow-inner">
+                <Mail className="w-7 h-7" />
+              </div>
+              <div>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-bold text-slate-900">Poplar Physical Direct Mail</h2>
+                  {isPoplarLoading && !poplarHealth ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                      <RefreshCw className="w-3 h-3 animate-spin text-agile-red" />
+                      Checking status...
+                    </span>
+                  ) : poplarHealth?.connected ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Connected (Test Sandbox)
+                    </span>
+                  ) : poplarHealth?.configured ? (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                      <AlertTriangle className="w-3 h-3 text-amber-600" />
+                      Configured &bull; Connectivity Notice
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                      Not Configured
+                    </span>
+                  )}
+
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                    <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                    Fail-Closed Safe Mode
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-500 mt-1">
+                  Automated Direct Mail &bull; Postcards &amp; Letters &bull; USPS CASS Address Validation &bull; Poplar API v1
+                </p>
+
+                {poplarHealth?.account_id && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-600">
+                    <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-700 font-medium">
+                      Account ID: {poplarHealth.account_id}
+                    </span>
+                    {poplarHealth.account_name && (
+                      <span>Account: <strong className="text-slate-800">{poplarHealth.account_name}</strong></span>
+                    )}
+                    <span className="inline-flex items-center gap-1 font-mono text-[11px] bg-amber-50 text-amber-800 px-2 py-0.5 rounded border border-amber-200">
+                      Env: {poplarHealth.environment.toUpperCase()}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 self-start md:self-auto shrink-0">
+              <button
+                onClick={fetchPoplarHealth}
+                disabled={isPoplarLoading}
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors disabled:opacity-50 shadow-xs"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isPoplarLoading ? "animate-spin text-amber-600" : "text-slate-500"}`} />
+                <span>Verify Connectivity</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="p-6 sm:p-7 space-y-6">
+            {poplarError && (
+              <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-900 flex items-start gap-3 text-sm">
+                <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Poplar Connection Error</p>
+                  <p className="text-xs text-red-700 mt-0.5">{poplarError}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Account & Safety Banner */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-1">
+                <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider block">Environment</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-slate-900 capitalize">{poplarHealth?.environment || "test"}</span>
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Sandbox</span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {poplarHealth?.connected
+                    ? "Connected to Poplar Test API with zero live postage liability."
+                    : "Test sandbox environment configured. Connection verification required."}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-1">
+                <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider block">Live Sending Gate</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-rose-700">Blocked (Enforced)</span>
+                </div>
+                <p className="text-[11px] text-slate-500">Live mail delivery disabled (<code className="font-mono text-[10px]">POPLAR_ALLOW_LIVE_SENDING=False</code>).</p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-1">
+                <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider block">Creative Library</span>
+                <div className="flex items-center gap-2">
+                  {poplarHealth?.connected ? (
+                    <>
+                      <span className="text-sm font-bold text-slate-900">Synchronized</span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Ready</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-sm font-bold text-slate-500">Disconnected</span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600">Requires Connection</span>
+                    </>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {poplarHealth?.connected
+                    ? "Directly selects verified artwork templates or custom PDFs."
+                    : "Creative templates accessible once provider connection is verified."}
+                </p>
+              </div>
+            </div>
+
+            {/* Supported Mailpiece Formats */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-amber-600" />
+                <span>Supported Mailpiece Formats &amp; Specifications</span>
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="p-3.5 rounded-xl border border-slate-200/80 bg-white space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900">4x6 Classic Postcard</span>
+                    <span className="text-[11px] font-semibold text-emerald-700 font-mono">~$0.78 / pc</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">Dimensions: 4.25&quot; x 6.25&quot; bleed &bull; 1275x1875px at 300 DPI &bull; Premium Coated Gloss</p>
+                </div>
+
+                <div className="p-3.5 rounded-xl border border-slate-200/80 bg-white space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900">6x9 Large Postcard</span>
+                    <span className="text-[11px] font-semibold text-emerald-700 font-mono">~$1.15 / pc</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">Dimensions: 6.25&quot; x 9.25&quot; bleed &bull; 1875x2775px at 300 DPI &bull; High-impact outreach</p>
+                </div>
+
+                <div className="p-3.5 rounded-xl border border-slate-200/80 bg-white space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900">6x11 Panoramic Postcard</span>
+                    <span className="text-[11px] font-semibold text-emerald-700 font-mono">~$1.42 / pc</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">Dimensions: 6.25&quot; x 11.25&quot; bleed &bull; 1875x3375px at 300 DPI &bull; Maximum mailbox presence</p>
+                </div>
+
+                <div className="p-3.5 rounded-xl border border-slate-200/80 bg-white space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900">B&amp;W Envelope Letter</span>
+                    <span className="text-[11px] font-semibold text-emerald-700 font-mono">~$0.98 / pc</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">Dimensions: 8.5&quot; x 11&quot; &bull; #10 Double-window envelope &bull; Formal notices &amp; invoices</p>
+                </div>
+
+                <div className="p-3.5 rounded-xl border border-slate-200/80 bg-white space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900">Full-Color Letter</span>
+                    <span className="text-[11px] font-semibold text-emerald-700 font-mono">~$1.25 / pc</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">Dimensions: 8.5&quot; x 11&quot; &bull; Full-color double-sided &bull; Executive brand presentation</p>
+                </div>
+
+                <div className="p-3.5 rounded-xl border border-slate-200/80 bg-white space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900">Folded Self-Mailer</span>
+                    <span className="text-[11px] font-semibold text-emerald-700 font-mono">~$1.45 / pc</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">Bifold or Trifold &bull; Wafer-sealed &bull; Multi-page product brochures</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Safety & Production Guarantees */}
+            <div className="rounded-xl bg-slate-50 p-4 border border-slate-200/60 text-xs text-slate-600 space-y-2">
+              <div className="flex items-center gap-2 font-semibold text-slate-800">
+                <ShieldCheck className="w-4 h-4 text-amber-600" />
+                <span>Physical Mail Production &amp; Safety Guarantees</span>
+              </div>
+              <ul className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1">
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  <strong>Explicit Approval Gate:</strong> Dispatches require positive user confirmation and idempotency keys before Poplar submission.
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  <strong>CASS Address Validation:</strong> Missing postal codes, invalid state codes, or non-US addresses are flagged before print.
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  <strong>Test Environment Enforcement:</strong> Orders in test mode simulate production routing without charging actual postage.
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                  <strong>Durable Audit Trails:</strong> Mailpiece IDs, proof URLs, and USPS fulfillment events are tracked in PostgreSQL.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
         {/* LinkedIn Account Integration Card */}
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
           <div className="p-6 sm:p-7 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -858,6 +1136,100 @@ export default function IntegrationsPage() {
                       {sc}
                     </span>
                   ))}
+                </div>
+
+                {/* LinkedIn API Capability Matrix */}
+                <div className="space-y-3 pt-4 border-t border-slate-200/80">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-[#0077b5]" />
+                      <span>API Capability &amp; Scope Breakdown</span>
+                    </h3>
+                    <span className="text-[11px] text-slate-500">
+                      Standard OpenID Scopes Active &bull; Headless DM APIs Gated by LinkedIn
+                    </span>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                    <div className="bg-slate-100/75 px-4 py-2.5 font-semibold text-slate-700 grid grid-cols-12 gap-2 border-b border-slate-200">
+                      <span className="col-span-3">Capability</span>
+                      <span className="col-span-2">Status</span>
+                      <span className="col-span-3">OAuth Scope / Product</span>
+                      <span className="col-span-4">Execution Model</span>
+                    </div>
+
+                    <div className="divide-y divide-slate-100 bg-white">
+                      <div className="px-4 py-2.5 grid grid-cols-12 gap-2 items-center">
+                        <span className="col-span-3 font-semibold text-slate-900">Member Profile</span>
+                        <span className="col-span-2">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Available
+                          </span>
+                        </span>
+                        <span className="col-span-3 font-mono text-[11px] text-slate-600">openid, profile</span>
+                        <span className="col-span-4 text-slate-600 text-[11px]">Direct automated OAuth profile retrieval</span>
+                      </div>
+
+                      <div className="px-4 py-2.5 grid grid-cols-12 gap-2 items-center">
+                        <span className="col-span-3 font-semibold text-slate-900">Email Verification</span>
+                        <span className="col-span-2">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Available
+                          </span>
+                        </span>
+                        <span className="col-span-3 font-mono text-[11px] text-slate-600">email</span>
+                        <span className="col-span-4 text-slate-600 text-[11px]">Direct automated primary email verification</span>
+                      </div>
+
+                      <div className="px-4 py-2.5 grid grid-cols-12 gap-2 items-center">
+                        <span className="col-span-3 font-semibold text-slate-900">Connection Invitations</span>
+                        <span className="col-span-2">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+                            Assisted Mode
+                          </span>
+                        </span>
+                        <span className="col-span-3 font-mono text-[11px] text-slate-600">Enterprise Partner API</span>
+                        <span className="col-span-4 text-slate-600 text-[11px]">Tailored 300-char notes &bull; 1-click copy &amp; confirm</span>
+                      </div>
+
+                      <div className="px-4 py-2.5 grid grid-cols-12 gap-2 items-center">
+                        <span className="col-span-3 font-semibold text-slate-900">Direct Messaging (DM)</span>
+                        <span className="col-span-2">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+                            Assisted Mode
+                          </span>
+                        </span>
+                        <span className="col-span-3 font-mono text-[11px] text-slate-600">Member Messaging API</span>
+                        <span className="col-span-4 text-slate-600 text-[11px]">Follow-up scripts with cal.com link &bull; 1-click copy</span>
+                      </div>
+
+                      <div className="px-4 py-2.5 grid grid-cols-12 gap-2 items-center">
+                        <span className="col-span-3 font-semibold text-slate-900">Company Page Updates</span>
+                        <span className="col-span-2">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                            Restricted
+                          </span>
+                        </span>
+                        <span className="col-span-3 font-mono text-[11px] text-slate-600">w_organization_social</span>
+                        <span className="col-span-4 text-slate-600 text-[11px]">Requires LinkedIn Page Admin approval</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assisted Mode Safe Workflow Banner */}
+                <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <ShieldCheck className="w-5 h-5 text-sky-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-bold text-sky-900">
+                        Assisted Outreach Mode Active &bull; 100% LinkedIn TOS Compliant
+                      </h4>
+                      <p className="text-xs text-sky-800 leading-relaxed">
+                        Automated headless invitations and direct messaging are strictly gated by LinkedIn to enterprise partner tiers. Agile Sales &amp; Marketing automatically generates personalized 300-character connection notes and follow-ups with your booking link (<a href="https://cal.com/agilereceivables/30min" target="_blank" rel="noopener noreferrer" className="font-semibold underline">cal.com/agilereceivables/30min</a>), providing one-click copy and tracking without risky browser automation or account bans.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

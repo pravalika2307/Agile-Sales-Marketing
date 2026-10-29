@@ -40,12 +40,17 @@ export interface BackendLead {
   industry?: string | null;
   employee_count_range?: string | null;
   city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
   country?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   email?: string | null;
   phone?: string | null;
   job_title?: string | null;
+  linkedin_profile_url?: string | null;
   qualification_status: string;
   lead_temperature?: string | null;
   lead_score?: number | null;
@@ -80,6 +85,7 @@ export interface CRMLead {
   country: string;
   location: string;
   website: string;
+  linkedinProfileUrl?: string | null;
   leadScore: number | null;
   isScored: boolean;
   temperature: CRMLeadTemperature;
@@ -108,7 +114,31 @@ export interface CreateLeadPayload {
   companyName: string;
   jobTitle?: string;
   industry?: string;
+  linkedinProfileUrl?: string;
   temperature?: CRMLeadTemperature;
+}
+
+export interface UpdateLeadPayload {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  companyName?: string;
+  companyDomain?: string;
+  jobTitle?: string;
+  industry?: string;
+  employeeCountRange?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  country?: string;
+  linkedinProfileUrl?: string | null;
+  temperature?: CRMLeadTemperature;
+  qualificationStatus?: "new" | "qualified" | "disqualified" | "reviewed";
+  qualificationReason?: string;
+  status?: CRMLeadStatus;
 }
 
 export interface CRMLeadFilterOptions {
@@ -155,7 +185,7 @@ export function mapBackendLeadToCRMLead(lead: BackendLead): CRMLead {
   const temperature: CRMLeadTemperature =
     rawTemp === "HOT" ? "HOT" : rawTemp === "WARM" ? "WARM" : rawTemp === "COLD" ? "COLD" : "UNASSESSED";
 
-  const locParts = [lead.city, lead.country].filter(Boolean);
+  const locParts = [lead.city, lead.state, lead.country].filter(Boolean);
   const location = locParts.length > 0 ? locParts.join(", ") : "—";
 
   // REAL DATA ONLY: Only leads genuinely evaluated via ICP algorithm have leadScore.
@@ -182,7 +212,7 @@ export function mapBackendLeadToCRMLead(lead: BackendLead): CRMLead {
     industry: lead.industry || "—",
     companySize: lead.employee_count_range || "—",
     city: lead.city || "",
-    state: "",
+    state: lead.state || "",
     country: lead.country || "",
     location,
     website: lead.company_domain
@@ -190,6 +220,7 @@ export function mapBackendLeadToCRMLead(lead: BackendLead): CRMLead {
         ? lead.company_domain
         : `https://${lead.company_domain}`
       : "",
+    linkedinProfileUrl: lead.linkedin_profile_url || null,
     leadScore,
     isScored,
     temperature,
@@ -300,6 +331,10 @@ export async function createBackendLead(payload: CreateLeadPayload): Promise<CRM
     source: "manual",
   };
 
+  if (payload.linkedinProfileUrl) {
+    backendBody.linkedin_profile_url = payload.linkedinProfileUrl.trim();
+  }
+
   // Only assign temperature if explicitly selected by user
   if (payload.temperature && payload.temperature !== "UNASSESSED") {
     backendBody.lead_temperature = payload.temperature.toLowerCase();
@@ -320,6 +355,62 @@ export async function createBackendLead(payload: CreateLeadPayload): Promise<CRM
 
   const createdRaw: BackendLead = await res.json();
   return mapBackendLeadToCRMLead(createdRaw);
+}
+
+/**
+ * Updates an individual lead record in the backend and returns the mapped CRMLead.
+ */
+export async function updateBackendLead(
+  leadId: string,
+  payload: UpdateLeadPayload
+): Promise<CRMLead> {
+  const backendBody: Record<string, any> = {};
+  if (payload.firstName !== undefined) backendBody.first_name = payload.firstName;
+  if (payload.lastName !== undefined) backendBody.last_name = payload.lastName;
+  if (payload.email !== undefined) backendBody.email = payload.email;
+  if (payload.phone !== undefined) backendBody.phone = payload.phone;
+  if (payload.jobTitle !== undefined) backendBody.job_title = payload.jobTitle;
+  if (payload.companyName !== undefined) backendBody.company_name = payload.companyName;
+  if (payload.companyDomain !== undefined) backendBody.company_domain = payload.companyDomain;
+  if (payload.industry !== undefined) backendBody.industry = payload.industry;
+  if (payload.employeeCountRange !== undefined) backendBody.employee_count_range = payload.employeeCountRange;
+  if (payload.city !== undefined) backendBody.city = payload.city;
+  if (payload.state !== undefined) backendBody.state = payload.state;
+  if (payload.postalCode !== undefined) backendBody.postal_code = payload.postalCode;
+  if (payload.addressLine1 !== undefined) backendBody.address_line_1 = payload.addressLine1;
+  if (payload.addressLine2 !== undefined) backendBody.address_line_2 = payload.addressLine2;
+  if (payload.country !== undefined) backendBody.country = payload.country;
+  if (payload.linkedinProfileUrl !== undefined) {
+    backendBody.linkedin_profile_url = payload.linkedinProfileUrl;
+  }
+  if (payload.temperature !== undefined) {
+    backendBody.lead_temperature = payload.temperature === "UNASSESSED" ? null : payload.temperature.toLowerCase();
+  }
+  if (payload.qualificationStatus !== undefined) {
+    backendBody.qualification_status = payload.qualificationStatus;
+  }
+  if (payload.qualificationReason !== undefined) {
+    backendBody.qualification_reason = payload.qualificationReason;
+  }
+  if (payload.status !== undefined) {
+    backendBody.status = payload.status;
+  }
+
+  const res = await fetch(`/api/leads/${leadId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(backendBody),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Failed to update lead (${res.status}): ${errText}`);
+  }
+
+  const updatedRaw: BackendLead = await res.json();
+  return mapBackendLeadToCRMLead(updatedRaw);
 }
 
 /**
@@ -447,6 +538,7 @@ export interface LeadImportRow {
   industry?: string;
   city?: string;
   country?: string;
+  linkedin_profile_url?: string;
 }
 
 export interface LeadImportResponse {

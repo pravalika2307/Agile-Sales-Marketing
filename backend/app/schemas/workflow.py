@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-SUPPORTED_WORKFLOW_NODE_TYPES = {"start", "email", "wait", "voice", "sms", "condition", "physical_mail"}
+SUPPORTED_WORKFLOW_NODE_TYPES = {"start", "email", "wait", "voice", "sms", "condition", "physical_mail", "linkedin"}
 KNOWN_TEMPLATE_VARIABLES = {
     "contact.first_name",
     "contact.last_name",
@@ -96,10 +96,10 @@ class WorkflowValidationResult(BaseModel):
     errors: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
     supported_step_types: List[str] = Field(
-        default_factory=lambda: ["email", "sms", "wait", "voice", "condition", "physical_mail"]
+        default_factory=lambda: ["email", "sms", "wait", "voice", "condition", "physical_mail", "linkedin"]
     )
     unavailable_step_types: List[str] = Field(
-        default_factory=lambda: ["linkedin", "social_publish"]
+        default_factory=lambda: ["social_publish"]
     )
 
 

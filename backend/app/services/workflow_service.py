@@ -168,6 +168,36 @@ def validate_workflow(workflow_config: WorkflowConfig) -> WorkflowValidationResu
                     f"Supported conditions: {', '.join(SUPPORTED_CONDITION_TYPES.keys())}."
                 )
 
+        # 6. Physical Mail Step Validation
+        elif node_type == "physical_mail":
+            warnings.append(
+                f"Step '{node.title}' (Poplar Direct Mail): Operates in Poplar TEST sandbox. "
+                "CASS address verification and cost preview required before test dispatch."
+            )
+
+        # 7. LinkedIn Step Validation
+        elif node_type == "linkedin":
+            msg_type = cfg.get("message_type", "connection_request")
+            body = (cfg.get("body") or cfg.get("body_template") or "").strip()
+            if body:
+                unresolved = find_unresolved_placeholders(body)
+                for ph in unresolved:
+                    clean_var = ph.strip("{}").strip().lower()
+                    if clean_var not in KNOWN_TEMPLATE_VARIABLES:
+                        errors.append(
+                            f"Step '{node.title}' contains unknown placeholder '{ph}' in LinkedIn template. "
+                            f"Supported variables: {', '.join(sorted(list(KNOWN_TEMPLATE_VARIABLES)))}."
+                        )
+                if msg_type == "connection_request" and len(body) > 300:
+                    errors.append(
+                        f"Step '{node.title}' (LinkedIn Connection Note) exceeds LinkedIn's 300-character limit "
+                        f"({len(body)} characters). Please shorten the note."
+                    )
+            warnings.append(
+                f"Step '{node.title}' (LinkedIn): Operates in Assisted Safe Mode. "
+                "Personalized copy-ready messages will be generated with 1-click manual confirmation tracking."
+            )
+
     is_valid = len(errors) == 0
     return WorkflowValidationResult(
         is_valid=is_valid,

@@ -17,6 +17,7 @@ from app.schemas.lead import (
     LeadBulkStatusUpdate,
     LeadConversionResponse,
     LeadCreate,
+    LeadUpdate,
     LeadImportRequest,
     LeadImportResponse,
     LeadListResponse,
@@ -51,6 +52,7 @@ from app.services.lead_generation import (
     list_leads,
     select_leads,
     update_lead_qualification,
+    update_lead,
 )
 from app.services.lead_qualification import (
     check_lead_campaign_eligibility,
@@ -250,6 +252,23 @@ async def get_lead_by_id(
     db: Session = Depends(get_db),
 ) -> LeadResponse:
     lead = get_lead(db, current_org, lead_id)
+    return LeadResponse.model_validate(lead)
+
+
+@router.patch(
+    "/{lead_id}",
+    response_model=LeadResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update lead details",
+    description="Partially update a prospect lead record including LinkedIn profile URL with tenant isolation.",
+)
+async def update_lead_by_id(
+    lead_id: uuid.UUID,
+    payload: LeadUpdate,
+    current_org: Organization = Depends(get_current_organization),
+    db: Session = Depends(get_db),
+) -> LeadResponse:
+    lead = update_lead(db, current_org, lead_id, payload)
     return LeadResponse.model_validate(lead)
 
 

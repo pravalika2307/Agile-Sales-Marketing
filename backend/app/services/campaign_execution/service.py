@@ -124,7 +124,10 @@ def preview_campaign_execution(
                 elif step1_type == "voice" and not (contact and contact.phone):
                     skipped_ids.append(cc.id)
                     continue
-                elif step1_type == "physical_mail" and not (contact and contact.postal_address_line1):
+                elif step1_type == "physical_mail" and not (contact and (getattr(contact, "address_line_1", None) or getattr(contact, "postal_address_line1", None))):
+                    skipped_ids.append(cc.id)
+                    continue
+                elif step1_type == "linkedin" and not (contact and (contact.first_name or contact.email)):
                     skipped_ids.append(cc.id)
                     continue
                 elif step1_type == "email" and not (contact and contact.email):
@@ -152,7 +155,18 @@ def preview_campaign_execution(
                     )
                 elif step1_type == "physical_mail":
                     subject = step_1.subject_template or "Poplar Direct Mail"
-                    body = f"Physical mailing to {contact.postal_address_line1}, {contact.postal_city or ''}"
+                    addr1 = getattr(contact, "address_line_1", None) or getattr(contact, "postal_address_line1", None) or "Address on file"
+                    city = getattr(contact, "city", None) or getattr(contact, "postal_city", None) or ""
+                    body = f"Physical mailing to {addr1}, {city}".strip()
+                elif step1_type == "linkedin":
+                    subject = step_1.subject_template or "LinkedIn Connection Request"
+                    body = render_template(
+                        step_1.body_template or "Hi {first_name}, noticed your leadership at {company}. We help streamline commercial billing and receivables with automated workflows. Would love to connect: {booking_link}",
+                        contact=contact,
+                        company=company,
+                        sender_name=sender_name,
+                        booking_link=booking_url or "https://cal.com/agilereceivables/30min",
+                    )
                 else:
                     subject = render_template(
                         step_1.subject_template,
@@ -266,7 +280,10 @@ def execute_campaign(
                 if step1_type in ("voice", "sms") and not (contact and contact.phone):
                     skipped_ids.append(cc.id)
                     continue
-                elif step1_type == "physical_mail" and not (contact and contact.postal_address_line1):
+                elif step1_type == "physical_mail" and not (contact and (getattr(contact, "address_line_1", None) or getattr(contact, "postal_address_line1", None))):
+                    skipped_ids.append(cc.id)
+                    continue
+                elif step1_type == "linkedin" and not (contact and (contact.first_name or contact.email)):
                     skipped_ids.append(cc.id)
                     continue
                 elif step1_type == "email" and not (contact and contact.email):
@@ -328,8 +345,20 @@ def execute_campaign(
                     outreach_recipient = contact.phone
                 elif step1_type == "physical_mail":
                     rendered_subject = step_1.subject_template or "Poplar Direct Mail"
-                    rendered_body = f"Physical mailing to {contact.postal_address_line1}, {contact.postal_city or ''}"
-                    outreach_recipient = contact.postal_address_line1
+                    addr1 = getattr(contact, "address_line_1", None) or getattr(contact, "postal_address_line1", None) or "Address on file"
+                    city = getattr(contact, "city", None) or getattr(contact, "postal_city", None) or ""
+                    rendered_body = f"Physical mailing to {addr1}, {city}".strip()
+                    outreach_recipient = addr1
+                elif step1_type == "linkedin":
+                    rendered_subject = step_1.subject_template or "LinkedIn Connection Request"
+                    rendered_body = render_template(
+                        step_1.body_template or "Hi {first_name}, noticed your leadership at {company}. We help streamline commercial billing and receivables with automated workflows. Would love to connect: {booking_link}",
+                        contact=contact,
+                        company=company,
+                        sender_name=sender_name,
+                        booking_link=booking_url or "https://cal.com/agilereceivables/30min",
+                    )
+                    outreach_recipient = getattr(contact, "linkedin_url", None) or contact.email or f"{contact.first_name} {contact.last_name}"
                 else:
                     # Email Step
                     rendered_subject = render_template(

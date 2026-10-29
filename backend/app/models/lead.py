@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 
 _lead_unmigrated_address_store = {}
+_lead_unmigrated_profile_store = {}
 
 def _check_column_exists(table_name: str, column_name: str) -> bool:
     """Checks if a column physically exists in the database table to support unmigrated DBs safely."""
@@ -225,6 +226,32 @@ class Lead(Base):
         nullable=True,
         index=True,
     )
+
+    if _check_column_exists("leads", "linkedin_profile_url"):
+        linkedin_profile_url: Mapped[Optional[str]] = mapped_column(
+            String(500),
+            nullable=True,
+        )
+    else:
+        # Fallback property when running against unmigrated database
+        @property
+        def linkedin_profile_url(self) -> Optional[str]:
+            val = getattr(self, "_linkedin_profile_url_val", None)
+            if val is not None:
+                return val
+            lid = getattr(self, "id", None)
+            return _lead_unmigrated_profile_store.get(lid, {}).get("linkedin_profile_url")
+
+        @linkedin_profile_url.setter
+        def linkedin_profile_url(self, val: Optional[str]):
+            self._linkedin_profile_url_val = val
+            lid = getattr(self, "id", None)
+            if not lid:
+                lid = uuid.uuid4()
+                self.id = lid
+            if lid not in _lead_unmigrated_profile_store:
+                _lead_unmigrated_profile_store[lid] = {}
+            _lead_unmigrated_profile_store[lid]["linkedin_profile_url"] = val
 
     # Qualification & Scoring
     qualification_status: Mapped[str] = mapped_column(

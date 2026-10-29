@@ -7,6 +7,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.crm import ALLOWED_LEAD_STATUSES
+from app.core.normalization import normalize_linkedin_profile_url
 from app.schemas.company import CompanyResponse
 
 
@@ -25,6 +26,12 @@ class ContactCreate(BaseModel):
     state: Optional[str] = Field(None, max_length=50, description="2-letter state abbreviation or region")
     postal_code: Optional[str] = Field(None, max_length=20, description="ZIP or postal code")
     country: Optional[str] = Field("US", max_length=100, description="Country code (default: US)")
+    linkedin_profile_url: Optional[str] = Field(None, max_length=500, description="Optional LinkedIn profile URL")
+
+    @field_validator("linkedin_profile_url")
+    @classmethod
+    def validate_linkedin_profile_url(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_linkedin_profile_url(v)
 
     @field_validator("lead_status")
     @classmethod
@@ -54,6 +61,12 @@ class ContactUpdate(BaseModel):
     state: Optional[str] = Field(None, max_length=50)
     postal_code: Optional[str] = Field(None, max_length=20)
     country: Optional[str] = Field(None, max_length=100)
+    linkedin_profile_url: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("linkedin_profile_url")
+    @classmethod
+    def validate_update_linkedin_profile_url(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_linkedin_profile_url(v)
 
     @field_validator("lead_status")
     @classmethod
@@ -87,6 +100,7 @@ class ContactResponse(BaseModel):
     state: Optional[str] = None
     postal_code: Optional[str] = None
     country: Optional[str] = "US"
+    linkedin_profile_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     company: Optional[CompanyResponse] = None

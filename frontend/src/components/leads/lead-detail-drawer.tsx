@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { CRMLead } from "@/services/crmLeadService";
+import { CRMLead, updateBackendLead } from "@/services/crmLeadService";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   X,
   Mail,
@@ -27,6 +28,8 @@ import {
   Trash2,
   Activity,
   Clock,
+  ExternalLink,
+  Edit,
 } from "lucide-react";
 import {
   evaluateLeadQualification,
@@ -51,6 +54,7 @@ export interface LeadDetailDrawerProps {
   onAddToCampaign?: (lead: CRMLead) => void;
   onLeadUpdated?: () => void;
   onDeleteLead?: (lead: CRMLead) => void;
+  onEditLead?: (lead: CRMLead) => void;
 }
 
 export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
@@ -60,6 +64,7 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
   onAddToCampaign,
   onLeadUpdated,
   onDeleteLead,
+  onEditLead,
 }) => {
   // Tabs: overview, qualification, routing, campaign, activities
   const [activeTab, setActiveTab] = React.useState<"overview" | "qualification" | "routing" | "campaign" | "activities">("overview");
@@ -104,6 +109,37 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
   const [isEnrolling, setIsEnrolling] = React.useState(false);
   const [enrollResult, setEnrollResult] = React.useState<LeadCampaignEnrollResult | null>(null);
   const [enrollError, setEnrollError] = React.useState<string | null>(null);
+
+  // Inline LinkedIn Profile Editing State
+  const [isEditingLinkedIn, setIsEditingLinkedIn] = React.useState(false);
+  const [linkedInUrlInput, setLinkedInUrlInput] = React.useState("");
+  const [isSavingLinkedIn, setIsSavingLinkedIn] = React.useState(false);
+  const [linkedInSaveError, setLinkedInSaveError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (lead) {
+      setLinkedInUrlInput(lead.linkedinProfileUrl || "");
+      setIsEditingLinkedIn(false);
+      setLinkedInSaveError(null);
+    }
+  }, [lead]);
+
+  const handleSaveLinkedInUrl = async () => {
+    if (!lead?.id) return;
+    setIsSavingLinkedIn(true);
+    setLinkedInSaveError(null);
+    try {
+      await updateBackendLead(lead.id, {
+        linkedinProfileUrl: linkedInUrlInput.trim() || null,
+      });
+      setIsEditingLinkedIn(false);
+      if (onLeadUpdated) onLeadUpdated();
+    } catch (err: unknown) {
+      setLinkedInSaveError(err instanceof Error ? err.message : "Failed to update LinkedIn profile URL.");
+    } finally {
+      setIsSavingLinkedIn(false);
+    }
+  };
 
   // Reset internal states on drawer open/lead change
   React.useEffect(() => {
@@ -253,6 +289,17 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
           </div>
 
           <div className="flex items-center gap-1">
+            {onEditLead && (
+              <button
+                type="button"
+                onClick={() => onEditLead(lead)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                title="Edit Lead Details"
+                aria-label="Edit Lead Details"
+              >
+                <Edit className="w-4 h-4" />
+              </button>
+            )}
             {onDeleteLead && (
               <button
                 type="button"
@@ -395,9 +442,21 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
             <div className="space-y-6">
               {/* Contact Information */}
               <div className="space-y-2.5">
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Contact Information
-                </h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Contact Information
+                  </h4>
+                  {onEditLead && (
+                    <button
+                      type="button"
+                      onClick={() => onEditLead(lead)}
+                      className="text-[11px] font-semibold text-agile-red hover:underline flex items-center gap-1"
+                    >
+                      <Edit className="w-3 h-3" />
+                      Edit Details
+                    </button>
+                  )}
+                </div>
                 <div className="rounded-lg border border-slate-200/80 p-3.5 bg-slate-50/50 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500 flex items-center gap-2">
@@ -423,6 +482,97 @@ export const LeadDetailDrawer: React.FC<LeadDetailDrawerProps> = ({
                       Location
                     </span>
                     <span className="text-slate-800 font-medium">{lead.location}</span>
+                  </div>
+
+                  {/* LinkedIn Profile URL */}
+                  <div className="pt-2 border-t border-slate-200/60">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 flex items-center gap-2">
+                        <svg className="w-3.5 h-3.5 text-[#0A66C2] shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/>
+                        </svg>
+                        LinkedIn Profile
+                      </span>
+                      {!isEditingLinkedIn ? (
+                        lead.linkedinProfileUrl ? (
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={lead.linkedinProfileUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[#0A66C2] hover:underline font-mono text-[11px] truncate max-w-[200px] flex items-center gap-1"
+                            >
+                              <span>{lead.linkedinProfileUrl.replace(/^https?:\/\/(www\.)?linkedin\.com\/in\//, "in/")}</span>
+                              <ExternalLink className="w-3 h-3 shrink-0" />
+                            </a>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setLinkedInUrlInput(lead.linkedinProfileUrl || "");
+                                setIsEditingLinkedIn(true);
+                              }}
+                              className="h-6 px-1.5 text-[10px] text-slate-500 hover:text-slate-800"
+                            >
+                              Edit
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="text-amber-600 text-[11px] italic">Not on file</span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setLinkedInUrlInput("");
+                                setIsEditingLinkedIn(true);
+                              }}
+                              className="h-6 px-2 text-[10px] text-amber-700 border-amber-300 hover:bg-amber-50"
+                            >
+                              + Add URL
+                            </Button>
+                          </div>
+                        )
+                      ) : null}
+                    </div>
+
+                    {isEditingLinkedIn && (
+                      <div className="mt-2 space-y-1.5 p-2 bg-white rounded border border-slate-200">
+                        <Input
+                          placeholder="https://www.linkedin.com/in/username"
+                          value={linkedInUrlInput}
+                          onChange={(e) => setLinkedInUrlInput(e.target.value)}
+                          className="h-7 text-xs font-mono"
+                          disabled={isSavingLinkedIn}
+                        />
+                        {linkedInSaveError && (
+                          <p className="text-[10px] text-rose-600">{linkedInSaveError}</p>
+                        )}
+                        <div className="flex justify-end gap-1.5">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setIsEditingLinkedIn(false);
+                              setLinkedInSaveError(null);
+                            }}
+                            disabled={isSavingLinkedIn}
+                            className="h-6 px-2 text-[10px]"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={handleSaveLinkedInUrl}
+                            disabled={isSavingLinkedIn}
+                            className="h-6 px-2 text-[10px] bg-agile-red hover:bg-agile-red/90 text-white"
+                          >
+                            {isSavingLinkedIn ? "Saving..." : "Save URL"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

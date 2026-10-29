@@ -530,3 +530,112 @@ async def test_api_status_redaction(db_session: Session, test_tenants):
         finally:
             app.dependency_overrides.pop(get_current_organization, None)
             app.dependency_overrides.pop(get_current_active_user, None)
+
+
+def test_linkedin_capabilities_matrix(db_session: Session, test_tenants):
+    """Verify LinkedIn API capability matrix returns all 7 capabilities with correct permission flags."""
+    org1 = test_tenants["org1"]
+    service = LinkedInIntegrationService(db=db_session)
+
+    caps = service.get_capabilities(org=org1)
+    assert caps["workflow_mode"] == "assisted"
+    assert caps["booking_url"] == "https://cal.com/agilereceivables/30min"
+    assert caps["connection_note_limit"] == 300
+
+    matrix = caps["capabilities"]
+    assert "read_profile" in matrix
+    assert "read_email" in matrix
+    assert "organization_page_info" in matrix
+    assert "publish_content" in matrix
+    assert "connection_invitations" in matrix
+    assert "direct_messages" in matrix
+    assert "invitation_acceptance" in matrix
+
+    # Verify assisted notes on gated APIs
+    assert matrix["connection_invitations"]["status"] == "unsupported"
+    assert matrix["connection_invitations"]["assisted_alternative"] is not None
+    assert matrix["direct_messages"]["status"] == "unsupported"
+
+
+def test_linkedin_campaign_assisted_queue_and_confirmation(db_session: Session, test_tenants):
+    """Verify assisted LinkedIn queue generation and manual dispatch confirmation."""
+    from app.models.campaign import Campaign, CampaignContact
+    from app.models.crm import Company, Contact
+
+    org1 = test_tenants["org1"]
+    user1 = test_tenants["user1"]
+    service = LinkedInIntegrationService(db=db_session)
+
+    # Create campaign
+    camp = Campaign(
+        id=uuid.uuid4(),
+        organization_id=org1.id,
+        name="LinkedIn Assisted Test Campaign",
+        type="sales_outbound",
+        status="active",
+        workflow_config={"steps": [{"step_number": 1, "type": "linkedin"}]},
+    )
+    db_session.add(camp)
+
+    # Create company
+    comp = Company(
+        id=uuid.uuid4(),
+        organization_id=org1.id,
+        name="Apex Healthcare",
+    )
+    db_session.add(comp)
+    db_session.flush()
+
+    # Create contact
+    contact = Contact(
+        id=uuid.uuid4(),
+        organization_id=org1.id,
+        company_id=comp.id,
+        first_name="Priya",
+        last_name="Sharma",
+        email="priya.sharma@example.com",
+        job_title="VP of Finance",
+    )
+    db_session.add(contact)
+    db_session.flush()
+
+    # Enroll contact
+    camp_contact = CampaignContact(
+        id=uuid.uuid4(),
+        campaign_id=camp.id,
+        contact_id=contact.id,
+        enrollment_status="queued",
+        current_step=1,
+    )
+    db_session.add(camp_contact)
+    db_session.commit()
+
+    # Fetch assisted queue
+    queue_resp = service.get_campaign_assisted_queue(org=org1, campaign_id=camp.id)
+    assert queue_resp["total"] == 1
+    assert queue_resp["pending_count"] == 1
+    assert queue_resp["completed_count"] == 0
+
+    item = queue_resp["items"][0]
+    assert item["full_name"] == "Priya Sharma"
+    assert item["company_name"] == "Apex Healthcare"
+    assert len(item["connection_note"]) <= 300
+    assert "https://cal.com/agilereceivables/30min" in item["connection_note"]
+    assert item["outreach_status"] == "pending"
+
+    # Confirm manual action
+    confirm_resp = service.confirm_assisted_action(
+        user=user1,
+        org=org1,
+        campaign_id=camp.id,
+        campaign_contact_id=camp_contact.id,
+        action_type="connection_request",
+        notes="Sent via LinkedIn desktop",
+    )
+    assert confirm_resp["success"] is True
+    assert confirm_resp["status"] == "sent"
+
+    # Re-fetch queue and verify status transition
+    updated_queue = service.get_campaign_assisted_queue(org=org1, campaign_id=camp.id)
+    assert updated_queue["completed_count"] == 1
+    assert updated_queue["items"][0]["outreach_status"] == "sent"

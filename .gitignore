@@ -51,6 +51,7 @@ Thumbs.db
 # Backups & Scratch
 *.dump
 meeting_transcript.txt
+scratch/
 
 # Run artifacts & PIDs
 .run/

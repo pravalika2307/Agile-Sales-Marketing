@@ -35,6 +35,7 @@ import {
   importLeadsBatch,
   LeadImportRow,
   LeadImportResponse,
+  updateBackendLead,
 } from "@/services/crmLeadService";
 import {
   fetchCampaigns,
@@ -68,6 +69,7 @@ import {
   Send,
   Eye,
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   FileSpreadsheet,
   FileCheck,
@@ -80,6 +82,7 @@ import {
   RefreshCw,
   ArrowLeft,
   ListOrdered,
+  Edit,
 } from "lucide-react";
 import { useAppMode } from "@/contexts/AppModeContext";
 
@@ -141,6 +144,30 @@ function LeadsPageContent() {
   const [newListDesc, setNewListDesc] = React.useState("");
   const [isCreatingList, setIsCreatingList] = React.useState(false);
   const [createListError, setCreateListError] = React.useState<string | null>(null);
+
+  // Edit Lead Modal State
+  const [isEditLeadModalOpen, setIsEditLeadModalOpen] = React.useState(false);
+  const [leadToEdit, setLeadToEdit] = React.useState<CRMLead | null>(null);
+  const [editLeadForm, setEditLeadForm] = React.useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    companyName: "",
+    companyDomain: "",
+    jobTitle: "",
+    industry: "",
+    companySize: "",
+    city: "",
+    state: "",
+    country: "",
+    linkedinProfileUrl: "",
+    temperature: "UNASSESSED" as CRMLeadTemperature,
+    qualificationStatus: "new" as "new" | "qualified" | "disqualified" | "reviewed",
+    qualificationReason: "",
+  });
+  const [isSavingLead, setIsSavingLead] = React.useState(false);
+  const [editLeadError, setEditLeadError] = React.useState<string | null>(null);
 
   // Edit List Modal State
   const [listToEdit, setListToEdit] = React.useState<ContactListItem | null>(null);
@@ -259,6 +286,7 @@ function LeadsPageContent() {
     companyName: "",
     jobTitle: "",
     industry: "Financial Services",
+    linkedinProfileUrl: "",
     temperature: "UNASSESSED" as CRMLeadTemperature,
   });
 
@@ -419,10 +447,7 @@ function LeadsPageContent() {
       setCreateLeadError("First name and Company name are required.");
       return;
     }
-    if (!newLeadForm.email.trim()) {
-      setCreateLeadError("Email is required.");
-      return;
-    }
+    // Contact fields (email, phone, linkedinProfileUrl) are optional to support minimal creation
     setIsCreatingLead(true);
     setCreateLeadError(null);
     try {
@@ -437,6 +462,7 @@ function LeadsPageContent() {
         companyName: "",
         jobTitle: "",
         industry: "Financial Services",
+        linkedinProfileUrl: "",
         temperature: "UNASSESSED",
       });
       // Re-sync sources to organize into "Manually Added Leads"
@@ -446,6 +472,120 @@ function LeadsPageContent() {
       setCreateLeadError(err instanceof Error ? err.message : "Failed to create lead.");
     } finally {
       setIsCreatingLead(false);
+    }
+  };
+
+  // ── Edit Lead Handlers ─────────────────────────────────────────────────────
+  const handleOpenEditLeadModal = (lead: CRMLead) => {
+    setLeadToEdit(lead);
+    setEditLeadForm({
+      firstName: lead.firstName || "",
+      lastName: lead.lastName || "",
+      email: lead.email === "—" ? "" : lead.email,
+      phone: lead.phone || "",
+      companyName: lead.companyName === "—" ? "" : lead.companyName,
+      companyDomain: lead.companyDomain || "",
+      jobTitle: lead.jobTitle === "—" ? "" : lead.jobTitle,
+      industry: lead.industry === "—" ? "" : lead.industry,
+      companySize: lead.companySize === "—" ? "" : lead.companySize,
+      city: lead.city || "",
+      state: lead.state || "",
+      country: lead.country || "",
+      linkedinProfileUrl: lead.linkedinProfileUrl || "",
+      temperature: lead.temperature || "UNASSESSED",
+      qualificationStatus: lead.qualificationStatus || "new",
+      qualificationReason: lead.qualificationReason === "—" ? "" : lead.qualificationReason,
+    });
+    setEditLeadError(null);
+    setIsEditLeadModalOpen(true);
+  };
+
+  const handleSaveEditedLead = async () => {
+    if (!leadToEdit) return;
+    if (!editLeadForm.companyName.trim() && !editLeadForm.firstName.trim()) {
+      setEditLeadError("At least a company name or lead name is required.");
+      return;
+    }
+
+    setIsSavingLead(true);
+    setEditLeadError(null);
+    try {
+      // Safe delta payload: only include actively updated fields to avoid overwriting unchanged values
+      const payload: Record<string, any> = {};
+
+      const trimmedFirst = editLeadForm.firstName.trim();
+      if (trimmedFirst !== (leadToEdit.firstName || "")) payload.firstName = trimmedFirst;
+
+      const trimmedLast = editLeadForm.lastName.trim();
+      if (trimmedLast !== (leadToEdit.lastName || "")) payload.lastName = trimmedLast;
+
+      const trimmedEmail = editLeadForm.email.trim();
+      const existingEmail = leadToEdit.email === "—" ? "" : leadToEdit.email;
+      if (trimmedEmail !== existingEmail) payload.email = trimmedEmail || undefined;
+
+      const trimmedPhone = editLeadForm.phone.trim();
+      if (trimmedPhone !== (leadToEdit.phone || "")) payload.phone = trimmedPhone || undefined;
+
+      const trimmedComp = editLeadForm.companyName.trim();
+      const existingComp = leadToEdit.companyName === "—" ? "" : leadToEdit.companyName;
+      if (trimmedComp && trimmedComp !== existingComp) payload.companyName = trimmedComp;
+
+      const trimmedDomain = editLeadForm.companyDomain.trim();
+      if (trimmedDomain !== (leadToEdit.companyDomain || "")) payload.companyDomain = trimmedDomain || undefined;
+
+      const trimmedTitle = editLeadForm.jobTitle.trim();
+      const existingTitle = leadToEdit.jobTitle === "—" ? "" : leadToEdit.jobTitle;
+      if (trimmedTitle !== existingTitle) payload.jobTitle = trimmedTitle || undefined;
+
+      const trimmedInd = editLeadForm.industry.trim();
+      const existingInd = leadToEdit.industry === "—" ? "" : leadToEdit.industry;
+      if (trimmedInd !== existingInd) payload.industry = trimmedInd || undefined;
+
+      const trimmedCity = editLeadForm.city.trim();
+      if (trimmedCity !== (leadToEdit.city || "")) payload.city = trimmedCity || undefined;
+
+      const trimmedState = editLeadForm.state.trim();
+      if (trimmedState !== (leadToEdit.state || "")) payload.state = trimmedState || undefined;
+
+      const trimmedCountry = editLeadForm.country.trim();
+      if (trimmedCountry !== (leadToEdit.country || "")) payload.country = trimmedCountry || undefined;
+
+      const trimmedLi = editLeadForm.linkedinProfileUrl.trim();
+      const existingLi = leadToEdit.linkedinProfileUrl || "";
+      if (trimmedLi !== existingLi) payload.linkedinProfileUrl = trimmedLi || null;
+
+      if (editLeadForm.temperature !== leadToEdit.temperature) {
+        payload.temperature = editLeadForm.temperature;
+      }
+
+      if (editLeadForm.qualificationStatus !== leadToEdit.qualificationStatus) {
+        payload.qualificationStatus = editLeadForm.qualificationStatus;
+      }
+
+      const trimmedReason = editLeadForm.qualificationReason.trim();
+      const existingReason = leadToEdit.qualificationReason === "—" ? "" : leadToEdit.qualificationReason;
+      if (trimmedReason !== existingReason) payload.qualificationReason = trimmedReason || undefined;
+
+      const updatedLead = await updateBackendLead(leadToEdit.id, payload);
+
+      // Refresh local leads list
+      setLeadsList((prev) => prev.map((l) => (l.id === updatedLead.id ? updatedLead : l)));
+
+      // If drawer is open with this lead, refresh drawer data immediately
+      if (inspectedLead && inspectedLead.id === updatedLead.id) {
+        setInspectedLead(updatedLead);
+      }
+
+      setSuccessToast(`Lead "${updatedLead.fullName}" updated successfully.`);
+      setIsEditLeadModalOpen(false);
+      setLeadToEdit(null);
+
+      // Refresh lists to update member and valid email counts
+      loadLists();
+    } catch (err: unknown) {
+      setEditLeadError(err instanceof Error ? err.message : "Failed to update lead.");
+    } finally {
+      setIsSavingLead(false);
     }
   };
 
@@ -485,6 +625,7 @@ function LeadsPageContent() {
         industry: getVal(columnMapping.industry) || undefined,
         city: getVal(columnMapping.city) || undefined,
         country: getVal(columnMapping.country) || undefined,
+        linkedin_profile_url: getVal(columnMapping.linkedin_profile_url) || undefined,
       };
     });
   }, [csvRawRows, columnMapping]);
@@ -562,6 +703,7 @@ function LeadsPageContent() {
           listId={selectedListId}
           onBackToLists={handleBackToLists}
           onInspectLead={(lead) => setInspectedLead(lead)}
+          onEditLead={handleOpenEditLeadModal}
         />
       ) : viewMode === "all_leads" ? (
         /* Raw All-Leads View */
@@ -740,13 +882,22 @@ function LeadsPageContent() {
                         </Badge>
                       </TableCell>
                       <TableCell className="py-2.5 text-right">
-                        <button
-                          onClick={() => setInspectedLead(lead)}
-                          className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                          title="Inspect Lead"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handleOpenEditLeadModal(lead)}
+                            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                            title="Edit Lead Details"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setInspectedLead(lead)}
+                            className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                            title="Inspect Lead"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -966,18 +1117,12 @@ function LeadsPageContent() {
 
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="text-xs font-semibold text-slate-700">Email *</label>
+              <label className="text-xs font-semibold text-slate-700">Email (Optional)</label>
               <Input
                 placeholder="jane@company.com"
                 value={newLeadForm.email}
-                error={createLeadError === "Email is required." ? createLeadError : undefined}
-                onChange={(e) => {
-                  setNewLeadForm({ ...newLeadForm, email: e.target.value });
-                  if (createLeadError === "Email is required.") {
-                    setCreateLeadError(null);
-                  }
-                }}
-                className="mt-1 h-8 text-xs"
+                onChange={(e) => setNewLeadForm({ ...newLeadForm, email: e.target.value })}
+                className="mt-1 h-8 text-xs font-mono"
               />
             </div>
             <div>
@@ -1020,6 +1165,19 @@ function LeadsPageContent() {
               onChange={(e) => setNewLeadForm({ ...newLeadForm, industry: e.target.value })}
               className="mt-1 h-8 text-xs"
             />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-slate-700">LinkedIn Profile URL</label>
+            <Input
+              placeholder="https://www.linkedin.com/in/username"
+              value={newLeadForm.linkedinProfileUrl || ""}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, linkedinProfileUrl: e.target.value })}
+              className="mt-1 h-8 text-xs font-mono"
+            />
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              Optional personal profile link for assisted LinkedIn outreach workflows.
+            </p>
           </div>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
@@ -1106,6 +1264,42 @@ function LeadsPageContent() {
                 </p>
               </div>
 
+              {/* Column Mapping for LinkedIn Profile URL */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                  <span>LinkedIn Profile Column Mapping</span>
+                  <span className="text-[11px] text-slate-500 font-normal">
+                    {columnMapping.linkedin_profile_url !== -1
+                      ? `Mapped to: "${csvHeaders[columnMapping.linkedin_profile_url]}"`
+                      : "(Auto-detect: Not detected)"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <select
+                      value={columnMapping.linkedin_profile_url}
+                      onChange={(e) =>
+                        setColumnMapping({
+                          ...columnMapping,
+                          linkedin_profile_url: parseInt(e.target.value, 10),
+                        })
+                      }
+                      className="w-full text-xs p-1.5 rounded border border-slate-200 bg-white"
+                    >
+                      <option value={-1}>-- Not Mapped (Optional) --</option>
+                      {csvHeaders.map((header, idx) => (
+                        <option key={idx} value={idx}>
+                          Col {idx + 1}: {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="text-[11px] text-slate-500 flex items-center">
+                    URLs are automatically validated and normalized to canonical format.
+                  </div>
+                </div>
+              </div>
+
               {csvParseError && (
                 <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">
                   {csvParseError}
@@ -1161,6 +1355,43 @@ function LeadsPageContent() {
                   ))}
                 </select>
               </div>
+
+              {/* LinkedIn URL Availability Warning for Target Campaign */}
+              {(() => {
+                const targetCampaign = availableCampaigns.find((c) => c.id === selectedCampaignId) || availableCampaigns[0];
+                const isLinkedIn =
+                  (targetCampaign?.type as string) === "linkedin" ||
+                  targetCampaign?.channels?.includes("linkedin") ||
+                  targetCampaign?.steps?.some((s) => s.stepType === "linkedin") ||
+                  targetCampaign?.workflowConfig?.nodes?.some((n: any) => n.type === "linkedin");
+                if (!isLinkedIn) return null;
+
+                const selectedList = leadsList.filter((l) => selectedIds.has(l.id));
+                const missingUrlCount = selectedList.filter((l) => !l.linkedinProfileUrl).length;
+
+                if (missingUrlCount === 0) {
+                  return (
+                    <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>All {selectedList.length} selected leads have LinkedIn profile URLs recorded.</span>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold block">
+                        ⚠️ {missingUrlCount} of {selectedList.length} selected leads do not have a LinkedIn profile URL recorded.
+                      </span>
+                      <span className="text-[11px] text-amber-700">
+                        They will still be enrolled safely with auto-generated LinkedIn Search links, and you can record their profile URLs directly in the LinkedIn Outreach workspace.
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
           <div className="flex justify-between items-center pt-2 border-t border-slate-100">
@@ -1206,11 +1437,239 @@ function LeadsPageContent() {
         />
       )}
 
+      {/* ── MODAL: Edit Lead Details ── */}
+      <Modal
+        isOpen={isEditLeadModalOpen}
+        onClose={() => {
+          setIsEditLeadModalOpen(false);
+          setLeadToEdit(null);
+        }}
+        title="Edit Lead Details"
+      >
+        <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          <p className="text-xs text-slate-500">
+            Update prospect details, contact information, company profile, or qualification status. All contact fields are optional.
+          </p>
+
+          {editLeadError && (
+            <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{editLeadError}</span>
+            </div>
+          )}
+
+          {/* Section: Contact Information */}
+          <div className="space-y-2.5">
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-1">
+              Contact Information
+            </h4>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="text-xs font-semibold text-slate-700">First Name</label>
+                <Input
+                  placeholder="First name"
+                  value={editLeadForm.firstName}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, firstName: e.target.value })}
+                  className="mt-1 h-8 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Last Name</label>
+                <Input
+                  placeholder="Last name"
+                  value={editLeadForm.lastName}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, lastName: e.target.value })}
+                  className="mt-1 h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Email Address (Optional)</label>
+                <Input
+                  placeholder="email@example.com"
+                  value={editLeadForm.email}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, email: e.target.value })}
+                  className="mt-1 h-8 text-xs font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Phone Number (Optional)</label>
+                <Input
+                  placeholder="+1 555-0100"
+                  value={editLeadForm.phone}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, phone: e.target.value })}
+                  className="mt-1 h-8 text-xs font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Job Title</label>
+                <Input
+                  placeholder="e.g. VP of Sales"
+                  value={editLeadForm.jobTitle}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, jobTitle: e.target.value })}
+                  className="mt-1 h-8 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700">LinkedIn Profile URL</label>
+                <Input
+                  placeholder="https://www.linkedin.com/in/username"
+                  value={editLeadForm.linkedinProfileUrl}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, linkedinProfileUrl: e.target.value })}
+                  className="mt-1 h-8 text-xs font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section: Company & Organization */}
+          <div className="space-y-2.5 pt-2">
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-1">
+              Company & Organization
+            </h4>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Company Name</label>
+                <Input
+                  placeholder="Company name"
+                  value={editLeadForm.companyName}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, companyName: e.target.value })}
+                  className="mt-1 h-8 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Company Domain / Website</label>
+                <Input
+                  placeholder="company.com"
+                  value={editLeadForm.companyDomain}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, companyDomain: e.target.value })}
+                  className="mt-1 h-8 text-xs font-mono"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700">Industry</label>
+              <Input
+                placeholder="e.g. Financial Services"
+                value={editLeadForm.industry}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, industry: e.target.value })}
+                className="mt-1 h-8 text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2.5">
+              <div>
+                <label className="text-xs font-semibold text-slate-700">City</label>
+                <Input
+                  placeholder="City"
+                  value={editLeadForm.city}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, city: e.target.value })}
+                  className="mt-1 h-8 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700">State / Region</label>
+                <Input
+                  placeholder="State"
+                  value={editLeadForm.state}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, state: e.target.value })}
+                  className="mt-1 h-8 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Country</label>
+                <Input
+                  placeholder="Country"
+                  value={editLeadForm.country}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, country: e.target.value })}
+                  className="mt-1 h-8 text-xs"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section: Temperature & Qualification */}
+          <div className="space-y-2.5 pt-2">
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100 pb-1">
+              Temperature & Qualification
+            </h4>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Lead Temperature</label>
+                <select
+                  value={editLeadForm.temperature}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, temperature: e.target.value as CRMLeadTemperature })}
+                  className="mt-1 w-full text-xs p-1.5 rounded border border-slate-200 bg-white"
+                >
+                  <option value="HOT">🔥 HOT</option>
+                  <option value="WARM">☀️ WARM</option>
+                  <option value="COLD">❄️ COLD</option>
+                  <option value="UNASSESSED">⚪ UNASSESSED</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-700">Qualification Status</label>
+                <select
+                  value={editLeadForm.qualificationStatus}
+                  onChange={(e) => setEditLeadForm({ ...editLeadForm, qualificationStatus: e.target.value as any })}
+                  className="mt-1 w-full text-xs p-1.5 rounded border border-slate-200 bg-white"
+                >
+                  <option value="new">New / Unassessed</option>
+                  <option value="qualified">Qualified</option>
+                  <option value="disqualified">Disqualified</option>
+                  <option value="reviewed">Reviewed</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700">Qualification Notes / Reason</label>
+              <Input
+                placeholder="e.g. Meets ICP criteria or notes from initial assessment"
+                value={editLeadForm.qualificationReason}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, qualificationReason: e.target.value })}
+                className="mt-1 h-8 text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setIsEditLeadModalOpen(false);
+                setLeadToEdit(null);
+              }}
+              className="text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSaveEditedLead}
+              disabled={isSavingLead}
+              className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
+            >
+              {isSavingLead ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* ── Lead Detail Drawer ── */}
       <LeadDetailDrawer
         lead={inspectedLead}
         isOpen={Boolean(inspectedLead)}
         onClose={() => setInspectedLead(null)}
+        onEditLead={handleOpenEditLeadModal}
         onLeadUpdated={() => {
           loadLists();
           if (viewMode === "all_leads") loadLeads(currentPage);

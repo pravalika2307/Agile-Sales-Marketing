@@ -17,7 +17,7 @@ export interface SelectProps
 }
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, label, error, options, children, icon, id, ...props }, ref) => {
+  ({ className, label, error, options, children, icon, id, suppressHydrationWarning = true, ...props }, ref) => {
     const generatedId = React.useId();
     const selectId = id || generatedId;
 
@@ -40,6 +40,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           <select
             id={selectId}
             ref={ref}
+            suppressHydrationWarning={suppressHydrationWarning}
             className={cn(
               "w-full appearance-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-all focus:border-agile-red focus:outline-none focus:ring-2 focus:ring-agile-red/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 pr-9",
               icon && "pl-9",

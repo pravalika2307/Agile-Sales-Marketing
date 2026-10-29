@@ -56,6 +56,7 @@ import {
   Plus,
   Activity,
   Clock,
+  Edit,
 } from "lucide-react";
 import { CRMLead, fetchCRMLeadById } from "@/services/crmLeadService";
 import {
@@ -67,12 +68,14 @@ export interface LeadListDetailViewProps {
   listId: string;
   onBackToLists: () => void;
   onInspectLead: (lead: CRMLead) => void;
+  onEditLead?: (lead: CRMLead) => void;
 }
 
 export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
   listId,
   onBackToLists,
   onInspectLead,
+  onEditLead,
 }) => {
   // Detail State
   const [listDetail, setListDetail] = React.useState<ContactListDetail | null>(null);
@@ -353,6 +356,17 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
         onInspectLead(lead);
       } catch (err) {
         console.error("Failed to fetch lead for drawer:", err);
+      }
+    }
+  };
+
+  const handleEditLeadClick = async (member: ContactListMember) => {
+    if (member.lead_id && onEditLead) {
+      try {
+        const lead = await fetchCRMLeadById(member.lead_id);
+        onEditLead(lead);
+      } catch (err) {
+        console.error("Failed to fetch lead for editing:", err);
       }
     }
   };
@@ -976,6 +990,15 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
                     {/* Actions */}
                     <TableCell className="py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {onEditLead && member.lead_id && (
+                          <button
+                            onClick={() => handleEditLeadClick(member)}
+                            className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                            title="Edit lead details"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleLeadClick(member)}
                           className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"

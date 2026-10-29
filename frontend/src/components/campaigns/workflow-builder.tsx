@@ -56,6 +56,7 @@ import {
   Check,
   Smartphone,
   ShieldCheck,
+  Share2,
 } from "lucide-react";
 import { estimateSMSSegments } from "@/services/smsService";
 
@@ -379,7 +380,7 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
   const selectedNode = workflow.nodes.find((n) => n.id === selectedNodeId) || null;
 
   // Add a new step after a specific node index
-  const handleAddStep = (afterIndex: number, type: "email" | "wait" | "voice" | "sms" | "condition" | "physical_mail") => {
+  const handleAddStep = (afterIndex: number, type: "email" | "wait" | "voice" | "sms" | "condition" | "physical_mail" | "linkedin") => {
     const newId = `node-${type}-${Date.now()}`;
     let title = "";
     let defaultConfig: Record<string, any> = {};
@@ -413,6 +414,17 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
         poplar_campaign_id: "",
         poplar_creative_id: "",
         format: "postcard",
+        delay_days: 0,
+        delay_hours: 0,
+        is_active: true,
+      };
+    } else if (type === "linkedin") {
+      title = "LinkedIn Outreach (Assisted)";
+      defaultConfig = {
+        message_type: "connection_request",
+        template: "Hi {contact.first_name}, would love to connect and share insights on receivables management. Let's chat: {booking_link}",
+        booking_url: "https://cal.com/agilereceivables/30min",
+        max_chars: 300,
         delay_days: 0,
         delay_hours: 0,
         is_active: true,
@@ -719,6 +731,10 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
                             ? "bg-blue-600 text-white"
                             : node.type === "sms"
                             ? "bg-emerald-600 text-white"
+                            : node.type === "physical_mail"
+                            ? "bg-amber-600 text-white"
+                            : node.type === "linkedin"
+                            ? "bg-[#0077b5] text-white"
                             : node.type === "condition"
                             ? "bg-purple-600 text-white"
                             : "bg-slate-300 text-slate-700"
@@ -729,14 +745,15 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
                         {node.type === "wait" && <Clock className="w-4 h-4" />}
                         {node.type === "voice" && <PhoneCall className="w-4 h-4" />}
                         {node.type === "sms" && <Smartphone className="w-4 h-4" />}
-                        {node.type === "physical_mail" && <Send className="w-4 h-4 text-rose-600" />}
+                        {node.type === "physical_mail" && <Send className="w-4 h-4 text-white" />}
+                        {node.type === "linkedin" && <Share2 className="w-4 h-4 text-white" />}
                         {node.type === "condition" && <GitBranch className="w-4 h-4" />}
                       </div>
 
                       <div>
                         <h4 className="text-xs font-bold text-header">{node.title}</h4>
                         <span className="text-[10px] text-slate-400 capitalize">
-                          {node.type === "voice" ? "Retell AI Voice SDR" : node.type === "sms" ? "Twilio SMS" : node.type === "physical_mail" ? "Poplar Direct Mail" : node.type} Step
+                          {node.type === "voice" ? "Retell AI Voice SDR" : node.type === "sms" ? "Twilio SMS" : node.type === "physical_mail" ? "Poplar Direct Mail" : node.type === "linkedin" ? "LinkedIn Outreach (Assisted)" : node.type} Step
                         </span>
                       </div>
                     </div>
@@ -780,6 +797,16 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
                         {node.config.body
                           ? `${estimateSMSSegments(node.config.body).characterCount} chars • ${estimateSMSSegments(node.config.body).segmentCount} seg`
                           : "Twilio SMS (Safe Mode)"}
+                      </p>
+                    )}
+                    {node.type === "physical_mail" && (
+                      <p className="text-amber-700 font-medium">
+                        Poplar Direct Mail • {node.config.format || "Postcard"}
+                      </p>
+                    )}
+                    {node.type === "linkedin" && (
+                      <p className="text-[#0077b5] font-medium">
+                        LinkedIn Assisted • {node.config.message_type === "direct_message" ? "Direct Message" : "Connection Request"}
                       </p>
                     )}
                     {node.type === "condition" && (
@@ -902,10 +929,19 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
               variant="outline"
               size="sm"
               onClick={() => handleAddStep(workflow.nodes.length - 1, "physical_mail")}
-              className="text-xs h-7 gap-1 border-rose-200 text-rose-700 hover:bg-rose-50"
+              className="text-xs h-7 gap-1 border-amber-200 text-amber-700 hover:bg-amber-50"
             >
-              <Send className="w-3 h-3 text-rose-600" />
+              <Send className="w-3 h-3 text-amber-600" />
               <span>Direct Mail</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleAddStep(workflow.nodes.length - 1, "linkedin")}
+              className="text-xs h-7 gap-1 border-sky-200 text-sky-700 hover:bg-sky-50"
+            >
+              <Share2 className="w-3 h-3 text-[#0077b5]" />
+              <span>LinkedIn</span>
             </Button>
             <Button
               variant="outline"
@@ -1419,6 +1455,72 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
                     <span className="font-semibold text-slate-700 block">Personalization Merge Tags:</span>
                     <p className="font-mono text-[10px]">{"{contact.first_name}"}, {"{contact.last_name}"}, {"{contact.company}"}</p>
                     <p className="font-mono text-[10px]">{"{contact.address_line_1}"}, {"{contact.city}"}, {"{contact.state}"}, {"{contact.postal_code}"}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* 5b. LINKEDIN STEP CONFIG */}
+              {selectedNode.type === "linkedin" && (
+                <div className="space-y-4">
+                  <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-lg text-xs text-sky-900 space-y-1">
+                    <div className="font-semibold flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-sky-600" />
+                      <span>LinkedIn Assisted Safe Mode</span>
+                    </div>
+                    <p className="text-[11px] text-sky-800">
+                      Generates personalized 300-char connection notes &amp; follow-ups with one-click copy and manual tracking. 100% compliant with LinkedIn terms.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1">
+                      Outreach Action Type
+                    </label>
+                    <select
+                      value={selectedNode.config.message_type || "connection_request"}
+                      onChange={(e) =>
+                        updateSelectedNodeConfig("message_type", e.target.value)
+                      }
+                      className="w-full text-xs rounded-md border border-slate-200 p-2 bg-white text-slate-800 focus:outline-none focus:border-agile-red"
+                    >
+                      <option value="connection_request">Connection Request (Personalized Note)</option>
+                      <option value="direct_message">Direct Message (Follow-up Message)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-slate-700">
+                        Note Template
+                      </label>
+                      <span className={`text-[10px] font-mono ${
+                        (selectedNode.config.template || "").length > 300 ? "text-rose-600 font-bold" : "text-slate-400"
+                      }`}>
+                        {(selectedNode.config.template || "").length} / 300 chars
+                      </span>
+                    </div>
+                    <textarea
+                      value={selectedNode.config.template || ""}
+                      onChange={(e) => updateSelectedNodeConfig("template", e.target.value)}
+                      placeholder="Hi {contact.first_name}, would love to connect..."
+                      rows={4}
+                      className="w-full text-xs rounded-md border border-slate-200 p-2 text-slate-800 focus:outline-none focus:border-agile-red"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Variables: <code className="font-mono text-slate-600">{`{contact.first_name}`}</code>, <code className="font-mono text-slate-600">{`{contact.company}`}</code>, <code className="font-mono text-slate-600">{`{booking_link}`}</code>
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1">
+                      Direct Booking URL
+                    </label>
+                    <Input
+                      value={selectedNode.config.booking_url || "https://cal.com/agilereceivables/30min"}
+                      onChange={(e) => updateSelectedNodeConfig("booking_url", e.target.value)}
+                      placeholder="https://cal.com/..."
+                      className="h-8 text-xs font-mono"
+                    />
                   </div>
                 </div>
               )}

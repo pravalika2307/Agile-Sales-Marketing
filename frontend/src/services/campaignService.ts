@@ -67,7 +67,7 @@ export interface OutreachItem {
 
 export interface WorkflowNode {
   id: string;
-  type: "start" | "email" | "wait" | "voice" | "sms" | "condition" | "physical_mail";
+  type: "start" | "email" | "wait" | "voice" | "sms" | "condition" | "physical_mail" | "linkedin";
   title: string;
   config: Record<string, any>;
   position?: { x: number; y: number };
@@ -155,7 +155,7 @@ export interface CampaignCreatePayload {
   name: string;
   type: CampaignType;
   description?: string | null;
-  first_step_channel?: "email" | "sms" | "voice" | "physical_mail";
+  first_step_channel?: "email" | "sms" | "voice" | "physical_mail" | "linkedin";
   scheduleSettings?: Record<string, unknown> | null;
   workflow_config?: WorkflowConfig | null;
 }
@@ -453,6 +453,19 @@ function mapRawCampaignToItem(
   };
 }
 
+function extractErrorMessage(err: any, fallback: string): string {
+  if (!err) return fallback;
+  if (typeof err.error === "string" && err.error) return err.error;
+  if (typeof err.message === "string" && err.message) return err.message;
+  if (err.detail) {
+    if (typeof err.detail === "string") return err.detail;
+    if (Array.isArray(err.detail)) {
+      return err.detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join("; ");
+    }
+  }
+  return fallback;
+}
+
 /**
  * Fetch all campaigns from backend with optional filters and total count.
  */
@@ -544,7 +557,7 @@ export async function createCampaign(payload: CampaignCreatePayload): Promise<Ca
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to create campaign (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to create campaign (HTTP ${res.status})`));
   }
 
   const created: RawBackendCampaign = await res.json();
@@ -561,7 +574,7 @@ export async function activateCampaign(campaignId: string): Promise<CampaignItem
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to activate campaign (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to activate campaign (HTTP ${res.status})`));
   }
 
   const updated: RawBackendCampaign = await res.json();
@@ -578,7 +591,7 @@ export async function pauseCampaign(campaignId: string): Promise<CampaignItem> {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to pause campaign (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to pause campaign (HTTP ${res.status})`));
   }
 
   const updated: RawBackendCampaign = await res.json();
@@ -595,7 +608,7 @@ export async function completeCampaign(campaignId: string): Promise<CampaignItem
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to complete campaign (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to complete campaign (HTTP ${res.status})`));
   }
 
   const updated: RawBackendCampaign = await res.json();
@@ -621,7 +634,7 @@ export async function enrollContactsInCampaign(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to enroll contacts (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to enroll contacts (HTTP ${res.status})`));
   }
 
   const data = await res.json();
@@ -670,7 +683,7 @@ export async function executeCampaignPlanning(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to execute campaign outreach planning (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to execute campaign outreach planning (HTTP ${res.status})`));
   }
 
   const data = await res.json();
@@ -710,7 +723,7 @@ export async function sendOutreachMessage(outreachId: string): Promise<OutreachI
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to send outreach (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to send outreach (HTTP ${res.status})`));
   }
 
   const rawOutreach: RawBackendOutreach = await res.json();
@@ -762,7 +775,7 @@ export async function fetchCampaignWorkflow(campaignId: string): Promise<Workflo
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to fetch campaign workflow (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to fetch campaign workflow (HTTP ${res.status})`));
   }
 
   return res.json();
@@ -787,7 +800,7 @@ export async function saveCampaignWorkflow(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to save campaign workflow (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to save campaign workflow (HTTP ${res.status})`));
   }
 
   return res.json();
@@ -808,7 +821,7 @@ export async function validateWorkflow(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to validate workflow (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to validate workflow (HTTP ${res.status})`));
   }
 
   return res.json();
@@ -829,7 +842,7 @@ export async function previewStepTemplate(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to preview template (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to preview template (HTTP ${res.status})`));
   }
 
   return res.json();
@@ -848,7 +861,7 @@ export async function removeContactFromCampaign(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to remove contact from campaign (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to remove contact from campaign (HTTP ${res.status})`));
   }
 }
 
@@ -862,7 +875,7 @@ export async function deleteCampaign(campaignId: string): Promise<void> {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to delete campaign (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to delete campaign (HTTP ${res.status})`));
   }
 }
 
@@ -912,7 +925,7 @@ export async function generateAICampaignDraft(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to generate campaign draft (HTTP ${res.status})`);
+    throw new Error(extractErrorMessage(err, `Failed to generate campaign draft (HTTP ${res.status})`));
   }
 
   return res.json();

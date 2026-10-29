@@ -8,7 +8,7 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 }
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, label, error, icon, type = "text", id, ...props }, ref) => {
+  ({ className, label, error, icon, type = "text", id, suppressHydrationWarning = true, ...props }, ref) => {
     const inputId = id || React.useId();
     return (
       <div className="w-full space-y-1.5">
@@ -30,6 +30,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             id={inputId}
             type={type}
             ref={ref}
+            suppressHydrationWarning={suppressHydrationWarning}
             className={cn(
               "w-full rounded-lg bg-white border border-slate-200 text-sm text-[#09272B] placeholder:text-slate-400 py-2 transition-all",
               icon ? "pl-9 pr-3" : "px-3",

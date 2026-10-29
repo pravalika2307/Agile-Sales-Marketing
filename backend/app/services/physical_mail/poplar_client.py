@@ -73,6 +73,20 @@ class PoplarAPIError(PoplarError):
         self.details = details or {}
 
 
+# ── Verified API Enum Constants ──────────────────────────────────────────────
+# In Poplar's API /v1/campaigns, purpose and sub_purpose are strictly validated enums.
+VALID_POPLAR_PURPOSES: set[str] = {"retention"}
+VALID_POPLAR_SUB_PURPOSES: set[str] = {"reactivation"}
+
+POPLAR_PURPOSE_MAPPINGS: Dict[str, str] = {
+    "retention": "retention",
+}
+
+POPLAR_SUB_PURPOSE_MAPPINGS: Dict[str, str] = {
+    "reactivation": "reactivation",
+}
+
+
 # ── Data Models ───────────────────────────────────────────────────────────────
 
 @dataclass
@@ -258,6 +272,136 @@ class PoplarClient:
             raise PoplarTimeoutError(f"Poplar connection verification timed out: {exc}") from exc
         except httpx.RequestError as exc:
             raise PoplarAPIError(0, f"Poplar network connection error: {exc}") from exc
+
+    def create_campaign(
+        self,
+        name: str,
+        purpose: str = "retention",
+        sub_purpose: str = "reactivation",
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Creates a programmatic Campaign resource in Poplar via POST /v1/campaigns.
+        This defines the organizational campaign container for direct mail pieces.
+        Safe operation: Does NOT purchase postage or trigger mail fulfillment.
+        """
+        if not name or not name.strip():
+            raise PoplarValidationError("Campaign name cannot be blank.")
+
+        clean_purpose = (purpose or "retention").strip().lower()
+        clean_sub_purpose = (sub_purpose or "reactivation").strip().lower()
+
+        if clean_purpose not in VALID_POPLAR_PURPOSES:
+            raise PoplarValidationError(
+                f"Invalid Poplar campaign purpose '{purpose}'. Accepted values: {', '.join(sorted(VALID_POPLAR_PURPOSES))}."
+            )
+        if clean_sub_purpose not in VALID_POPLAR_SUB_PURPOSES:
+            raise PoplarValidationError(
+                f"Invalid Poplar campaign sub-purpose '{sub_purpose}'. Accepted values: {', '.join(sorted(VALID_POPLAR_SUB_PURPOSES))}."
+            )
+
+        payload: Dict[str, Any] = {
+            "name": name.strip(),
+            "purpose": clean_purpose,
+            "sub_purpose": clean_sub_purpose,
+        }
+        if description and description.strip():
+            payload["description"] = description.strip()
+
+        url = f"{self.base_url}/campaigns"
+        try:
+            resp = self._http_client.post(url, headers=self._headers(), json=payload)
+            if resp.status_code >= 400:
+                self._handle_response_error(resp)
+            return resp.json() if resp.text else {}
+        except (httpx.TimeoutException, httpx.ConnectTimeout) as exc:
+            raise PoplarTimeoutError("Request to create Poplar campaign timed out.") from exc
+        except httpx.RequestError as exc:
+            raise PoplarAPIError(0, f"Poplar network request error: {exc}") from exc
+
+    def get_campaign(self, campaign_id: str) -> Dict[str, Any]:
+        """
+        Retrieves a campaign resource by ID via GET /v1/campaign/:id.
+        """
+        if not campaign_id or not campaign_id.strip():
+            raise PoplarValidationError("campaign_id is required.")
+
+        url = f"{self.base_url}/campaign/{campaign_id.strip()}"
+        try:
+            resp = self._http_client.get(url, headers=self._headers())
+            if resp.status_code >= 400:
+                self._handle_response_error(resp)
+            return resp.json() if resp.text else {}
+        except (httpx.TimeoutException, httpx.ConnectTimeout) as exc:
+            raise PoplarTimeoutError(f"Request to fetch Poplar campaign '{campaign_id}' timed out.") from exc
+        except httpx.RequestError as exc:
+            raise PoplarAPIError(0, f"Poplar network request error: {exc}") from exc
+
+    def list_campaigns(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves list of campaigns configured in Poplar via GET /v1/campaigns.
+        """
+        url = f"{self.base_url}/campaigns"
+        try:
+            resp = self._http_client.get(url, headers=self._headers())
+            if resp.status_code >= 400:
+                self._handle_response_error(resp)
+            return resp.json() if resp.text else []
+        except (httpx.TimeoutException, httpx.ConnectTimeout) as exc:
+            raise PoplarTimeoutError("Request to list Poplar campaigns timed out.") from exc
+        except httpx.RequestError as exc:
+            raise PoplarAPIError(0, f"Poplar network request error: {exc}") from exc
+
+    def get_campaign_creatives(self, campaign_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieves creatives linked to a campaign via GET /v1/campaign/:id/creatives.
+        """
+        if not campaign_id or not campaign_id.strip():
+            raise PoplarValidationError("campaign_id is required.")
+
+        url = f"{self.base_url}/campaign/{campaign_id.strip()}/creatives"
+        try:
+            resp = self._http_client.get(url, headers=self._headers())
+            if resp.status_code >= 400:
+                self._handle_response_error(resp)
+            return resp.json() if resp.text else []
+        except (httpx.TimeoutException, httpx.ConnectTimeout) as exc:
+            raise PoplarTimeoutError(f"Request to fetch Poplar creatives for '{campaign_id}' timed out.") from exc
+        except httpx.RequestError as exc:
+            raise PoplarAPIError(0, f"Poplar network request error: {exc}") from exc
+
+    def list_account_creatives(self, campaign_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves creative assets available in the Poplar account.
+        If campaign_id is provided, returns creatives for that specific campaign.
+        Otherwise, iterates over active campaigns in the account to aggregate available creatives.
+        """
+        if campaign_id and campaign_id.strip():
+            return self.get_campaign_creatives(campaign_id.strip())
+
+        campaigns = self.list_campaigns()
+        all_creatives: List[Dict[str, Any]] = []
+        seen_ids = set()
+
+        for c in campaigns:
+            cid = c.get("id")
+            cname = c.get("name", "Campaign")
+            if not cid:
+                continue
+            try:
+                creatives = self.get_campaign_creatives(cid)
+                for cr in creatives:
+                    crid = cr.get("id")
+                    if crid and crid not in seen_ids:
+                        seen_ids.add(crid)
+                        item = dict(cr)
+                        item["associated_campaign_id"] = cid
+                        item["associated_campaign_name"] = cname
+                        all_creatives.append(item)
+            except Exception as exc:
+                logger.debug("Could not fetch creatives for campaign %s: %s", cid, exc)
+
+        return all_creatives
 
     def create_mailing(
         self,

@@ -13,11 +13,18 @@ from app.api.deps import get_current_active_user, get_current_organization
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.tenant import Organization, User
+import uuid
 from app.schemas.linkedin import (
     LinkedInAuthorizeResponse,
     LinkedInCallbackResponse,
+    LinkedInCapabilitiesResponse,
     LinkedInDisconnectResponse,
     LinkedInStatusResponse,
+    LinkedInAssistedQueueResponse,
+    LinkedInConfirmActionRequest,
+    LinkedInConfirmActionResponse,
+    LinkedInUpdateProspectProfileRequest,
+    LinkedInUpdateProspectProfileResponse,
 )
 from app.services.integrations.linkedin.client import LinkedInOAuthClient
 from app.services.integrations.linkedin.service import LinkedInIntegrationService
@@ -150,3 +157,100 @@ def disconnect_linkedin(
         success=True,
         message="LinkedIn account disconnected successfully.",
     )
+
+
+@router.get(
+    "/capabilities",
+    response_model=LinkedInCapabilitiesResponse,
+    summary="Get detailed LinkedIn API capability matrix",
+)
+def get_linkedin_capabilities(
+    org: Organization = Depends(get_current_organization),
+    service: LinkedInIntegrationService = Depends(get_linkedin_service),
+) -> LinkedInCapabilitiesResponse:
+    """
+    Evaluates granted scopes and reports official capabilities:
+    profile reading (available), email reading (available), organization pages (restricted),
+    and automated 1-to-1 messaging/invitations (unsupported, assisted workflow provided).
+    """
+    cap_data = service.get_capabilities(org=org)
+    return LinkedInCapabilitiesResponse(**cap_data)
+
+
+@router.get(
+    "/campaigns/{campaign_id}/queue",
+    response_model=LinkedInAssistedQueueResponse,
+    summary="Get assisted LinkedIn outreach queue for campaign",
+)
+def get_linkedin_campaign_queue(
+    campaign_id: uuid.UUID,
+    org: Organization = Depends(get_current_organization),
+    service: LinkedInIntegrationService = Depends(get_linkedin_service),
+) -> LinkedInAssistedQueueResponse:
+    """
+    Returns enrolled prospects with pre-rendered, personalized copy-ready
+    connection notes (<=300 chars) and follow-up messages with booking URLs.
+    """
+    try:
+        queue_data = service.get_campaign_assisted_queue(org=org, campaign_id=campaign_id)
+        return LinkedInAssistedQueueResponse(**queue_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.post(
+    "/campaigns/{campaign_id}/confirm",
+    response_model=LinkedInConfirmActionResponse,
+    summary="Confirm manual LinkedIn connection request or message",
+)
+def confirm_linkedin_action(
+    campaign_id: uuid.UUID,
+    payload: LinkedInConfirmActionRequest,
+    current_user: User = Depends(get_current_active_user),
+    org: Organization = Depends(get_current_organization),
+    service: LinkedInIntegrationService = Depends(get_linkedin_service),
+) -> LinkedInConfirmActionResponse:
+    """
+    Records user confirmation that a LinkedIn connection request or message was sent manually.
+    Creates or updates Outreach record, updates contact progress, and logs an audit event.
+    """
+    try:
+        res = service.confirm_assisted_action(
+            user=current_user,
+            org=org,
+            campaign_id=campaign_id,
+            campaign_contact_id=payload.campaign_contact_id,
+            action_type=payload.action_type,
+            notes=payload.notes,
+        )
+        return LinkedInConfirmActionResponse(**res)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+@router.post(
+    "/campaigns/{campaign_id}/prospects/{campaign_contact_id}/linkedin-url",
+    response_model=LinkedInUpdateProspectProfileResponse,
+    summary="Update prospect LinkedIn profile URL from assisted queue",
+)
+def update_prospect_linkedin_url(
+    campaign_id: uuid.UUID,
+    campaign_contact_id: uuid.UUID,
+    payload: LinkedInUpdateProspectProfileRequest,
+    org: Organization = Depends(get_current_organization),
+    service: LinkedInIntegrationService = Depends(get_linkedin_service),
+) -> LinkedInUpdateProspectProfileResponse:
+    """
+    Updates the LinkedIn profile URL for an enrolled prospect in the campaign queue.
+    Syncs across CRM Contact and Lead records with tenant isolation.
+    """
+    try:
+        res = service.update_prospect_linkedin_url(
+            org=org,
+            campaign_id=campaign_id,
+            campaign_contact_id=campaign_contact_id,
+            profile_url=payload.linkedin_profile_url,
+        )
+        return LinkedInUpdateProspectProfileResponse(**res)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+

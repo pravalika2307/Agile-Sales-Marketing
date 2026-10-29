@@ -20,6 +20,12 @@ import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { Modal } from "@/components/ui/modal";
 import { PhysicalMailPreflightModal } from "./physical-mail-preflight-modal";
+import {
+  getLinkedInCampaignQueue,
+  confirmLinkedInAction,
+  updateProspectLinkedInUrl,
+  type LinkedInAssistedQueueItem,
+} from "@/services/linkedinService";
 import { simulateMockCallCompletion } from "@/services/voiceService";
 import {
   getChannelCapabilities,
@@ -52,6 +58,9 @@ import {
   MessageSquare,
   PhoneCall,
   ExternalLink,
+  Share2,
+  Copy,
+  ShieldCheck,
 } from "lucide-react";
 import {
   ContactListItem,
@@ -146,12 +155,12 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
     if (!campaign) return ["email"];
     const found = new Set<string>();
     for (const step of campaign.steps || []) {
-      if (["email", "voice", "sms", "physical_mail"].includes(step.stepType)) {
+      if (["email", "voice", "sms", "physical_mail", "linkedin"].includes(step.stepType)) {
         found.add(step.stepType);
       }
     }
     for (const n of campaign.workflowConfig?.nodes || []) {
-      if (["email", "voice", "sms", "physical_mail"].includes(n.type)) {
+      if (["email", "voice", "sms", "physical_mail", "linkedin"].includes(n.type)) {
         found.add(n.type);
       }
     }
@@ -171,6 +180,110 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
   const [isAttachingList, setIsAttachingList] = React.useState(false);
   const [attachListError, setAttachListError] = React.useState<string | null>(null);
   const [syncingListId, setSyncingListId] = React.useState<string | null>(null);
+
+  // LinkedIn Assisted Outreach Workspace State
+  const [isLinkedInDrawerOpen, setIsLinkedInDrawerOpen] = React.useState(false);
+  const [linkedInQueue, setLinkedInQueue] = React.useState<LinkedInAssistedQueueItem[]>([]);
+  const [isLoadingLinkedInQueue, setIsLoadingLinkedInQueue] = React.useState(false);
+  const [copiedItemIds, setCopiedItemIds] = React.useState<Set<string>>(new Set());
+  const [confirmingItemIds, setConfirmingItemIds] = React.useState<Set<string>>(new Set());
+  const [linkedInFeedback, setLinkedInFeedback] = React.useState<string | null>(null);
+
+  const loadLinkedInQueue = React.useCallback(async (campId: string) => {
+    setIsLoadingLinkedInQueue(true);
+    setLinkedInFeedback(null);
+    try {
+      const res = await getLinkedInCampaignQueue(campId);
+      setLinkedInQueue(res.items || []);
+    } catch (err: any) {
+      console.warn("Failed to load LinkedIn assisted queue:", err);
+      setLinkedInFeedback(err.message || "Failed to load LinkedIn outreach queue");
+    } finally {
+      setIsLoadingLinkedInQueue(false);
+    }
+  }, []);
+
+  const handleCopyLinkedInNote = async (item: LinkedInAssistedQueueItem) => {
+    try {
+      await navigator.clipboard.writeText(item.connection_note);
+      setCopiedItemIds((prev) => new Set(prev).add(item.campaign_contact_id));
+      setTimeout(() => {
+        setCopiedItemIds((prev) => {
+          const next = new Set(prev);
+          next.delete(item.campaign_contact_id);
+          return next;
+        });
+      }, 3000);
+    } catch (e) {
+      console.warn("Clipboard write failed:", e);
+    }
+  };
+
+  // Inline Prospect LinkedIn URL state
+  const [editingProspectId, setEditingProspectId] = React.useState<string | null>(null);
+  const [prospectUrlInput, setProspectUrlInput] = React.useState("");
+  const [isSavingProspectUrl, setIsSavingProspectUrl] = React.useState(false);
+  const [prospectUrlError, setProspectUrlError] = React.useState<string | null>(null);
+
+  const handleSaveProspectUrl = async (item: LinkedInAssistedQueueItem) => {
+    if (!campaign) return;
+    setIsSavingProspectUrl(true);
+    setProspectUrlError(null);
+    try {
+      const res = await updateProspectLinkedInUrl(
+        campaign.id,
+        item.campaign_contact_id,
+        prospectUrlInput.trim()
+      );
+      setLinkedInQueue((prev) =>
+        prev.map((q) =>
+          q.campaign_contact_id === item.campaign_contact_id
+            ? {
+                ...q,
+                linkedin_url: res.linkedin_profile_url,
+                linkedin_profile_url: res.linkedin_profile_url,
+                has_linkedin_profile_url: true,
+              }
+            : q
+        )
+      );
+      setEditingProspectId(null);
+      setActionSuccess(`Saved LinkedIn profile URL for ${item.full_name}`);
+    } catch (err: any) {
+      setProspectUrlError(err.message || "Failed to save profile URL");
+    } finally {
+      setIsSavingProspectUrl(false);
+    }
+  };
+
+  const handleConfirmLinkedInSent = async (item: LinkedInAssistedQueueItem) => {
+    if (!campaign) return;
+    setConfirmingItemIds((prev) => new Set(prev).add(item.campaign_contact_id));
+    try {
+      const res = await confirmLinkedInAction(campaign.id, {
+        campaign_contact_id: item.campaign_contact_id,
+        action_type: "connection_request",
+      });
+      if (res.success) {
+        setLinkedInQueue((prev) =>
+          prev.map((q) =>
+            q.campaign_contact_id === item.campaign_contact_id
+              ? { ...q, outreach_status: "sent", sent_at: new Date().toISOString() }
+              : q
+          )
+        );
+        setActionSuccess(`Recorded manual LinkedIn outreach for ${item.full_name}`);
+      }
+    } catch (err: any) {
+      setLinkedInFeedback(err.message || "Failed to confirm LinkedIn action");
+    } finally {
+      setConfirmingItemIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.campaign_contact_id);
+        return next;
+      });
+    }
+  };
 
   const loadAttachedLists = React.useCallback(async (campId: string) => {
     setIsLoadingAttachedLists(true);
@@ -696,11 +809,26 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                 variant="outline"
                 size="sm"
                 onClick={() => setIsPhysicalMailModalOpen(true)}
-                className="text-xs inline-flex items-center gap-1 border-rose-300 text-rose-700 hover:bg-rose-50"
+                className="text-xs inline-flex items-center gap-1 border-amber-300 text-amber-700 hover:bg-amber-50"
                 title="Direct Mail Pre-Flight & Test Dispatch"
               >
-                <Send className="w-3 h-3 text-rose-600" />
+                <Send className="w-3 h-3 text-amber-600" />
                 <span>Direct Mail</span>
+              </Button>
+            )}
+            {(campaign.steps.some((s) => s.stepType === "linkedin") || campaign.channels?.includes("linkedin") || campaign.workflowConfig?.nodes?.some((n: any) => n.type === "linkedin")) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsLinkedInDrawerOpen(true);
+                  if (campaign) loadLinkedInQueue(campaign.id);
+                }}
+                className="text-xs inline-flex items-center gap-1 border-sky-300 text-sky-700 hover:bg-sky-50"
+                title="Open Assisted LinkedIn Outreach Workspace"
+              >
+                <Share2 className="w-3 h-3 text-[#0077b5]" />
+                <span>LinkedIn Outreach</span>
               </Button>
             )}
             <Button
@@ -825,6 +953,15 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                             Direct Mail {isMailUnlocked ? "(Poplar)" : "(Upgrade Required)"}
                           </span>
                         )}
+                        {ch === "linkedin" && (
+                          <span
+                            className="flex items-center gap-1 text-[#0077b5]"
+                            title="LinkedIn Assisted Outreach"
+                          >
+                            <Share2 className="w-3.5 h-3.5 text-[#0077b5]" />
+                            LinkedIn (Assisted)
+                          </span>
+                        )}
                       </React.Fragment>
                     );
                   })}
@@ -875,6 +1012,7 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                   const isCondition = step.stepType === "condition";
                   const isSms = step.stepType === "sms";
                   const isPhysicalMail = step.stepType === "physical_mail";
+                  const isLinkedIn = step.stepType === "linkedin";
                   const isVoiceUnlocked = channelCapabilities["voice"]?.is_unlocked ?? false;
 
                   return (
@@ -895,7 +1033,9 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                                 : isSms
                                 ? "bg-emerald-600 text-white"
                                 : isPhysicalMail
-                                ? "bg-rose-600 text-white"
+                                ? "bg-amber-600 text-white"
+                                : isLinkedIn
+                                ? "bg-[#0077b5] text-white"
                                 : "bg-header text-white"
                             }`}
                           >
@@ -906,8 +1046,9 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                             {isWait && <Clock className="w-3.5 h-3.5 text-amber-500" />}
                             {isCondition && <GitBranch className="w-3.5 h-3.5 text-indigo-500" />}
                             {isSms && <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />}
-                            {isPhysicalMail && <Send className="w-3.5 h-3.5 text-rose-500" />}
-                            {!isVoice && !isWait && !isCondition && !isSms && !isPhysicalMail && (
+                            {isPhysicalMail && <Send className="w-3.5 h-3.5 text-amber-600" />}
+                            {isLinkedIn && <Share2 className="w-3.5 h-3.5 text-[#0077b5]" />}
+                            {!isVoice && !isWait && !isCondition && !isSms && !isPhysicalMail && !isLinkedIn && (
                               <Mail className="w-3.5 h-3.5 text-slate-400" />
                             )}
                             {step.title || (
@@ -921,6 +1062,8 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                                 ? `Step ${step.stepNumber}: SMS Outreach`
                                 : isPhysicalMail
                                 ? `Step ${step.stepNumber}: Physical Mail`
+                                : isLinkedIn
+                                ? `Step ${step.stepNumber}: LinkedIn Outreach (Assisted)`
                                 : `Step ${step.stepNumber}: Email Outreach`
                             )}
                           </span>
@@ -1866,6 +2009,278 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
           onCampaignUpdated?.();
         }}
       />
+
+      {/* Modal: LinkedIn Assisted Outreach Workspace */}
+      <Modal
+        isOpen={isLinkedInDrawerOpen}
+        onClose={() => setIsLinkedInDrawerOpen(false)}
+        title={`LinkedIn Assisted Outreach — ${campaign.name}`}
+      >
+        <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          {/* Compliance & Safety Banner */}
+          <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-lg flex items-start gap-2.5 text-xs text-sky-900">
+            <ShieldCheck className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <span className="font-semibold">LinkedIn Assisted Safe Mode (100% TOS Compliant)</span>
+              <p className="text-[11px] text-sky-800">
+                Personalized 300-char connection notes are automatically generated for enrolled prospects. Open their profile, copy the tailored message with 1 click, send via LinkedIn, and click &quot;Confirm Sent&quot; to log the touchpoint.
+              </p>
+            </div>
+          </div>
+
+          {linkedInFeedback && (
+            <div className="p-2.5 rounded bg-rose-50 border border-rose-200 text-xs text-rose-800">
+              {linkedInFeedback}
+            </div>
+          )}
+
+          {isLoadingLinkedInQueue ? (
+            <div className="p-8 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-agile-red" />
+              <span>Loading enrolled LinkedIn prospects...</span>
+            </div>
+          ) : linkedInQueue.length === 0 ? (
+            <div className="p-6 text-center text-xs text-slate-500 bg-slate-50 rounded-lg border border-slate-200">
+              No contacts enrolled for LinkedIn outreach in this campaign. Enroll contacts or generate a preview from the Overview tab.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>
+                  Enrolled Contacts: <strong>{linkedInQueue.length}</strong> (
+                  {linkedInQueue.filter((q) => q.outreach_status === "sent").length} completed)
+                </span>
+                <button
+                  onClick={() => campaign && loadLinkedInQueue(campaign.id)}
+                  className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Refresh Queue</span>
+                </button>
+              </div>
+
+              {linkedInQueue.map((item) => {
+                const isCopied = copiedItemIds.has(item.campaign_contact_id);
+                const isConfirming = confirmingItemIds.has(item.campaign_contact_id);
+                const isSent = item.outreach_status === "sent";
+
+                return (
+                  <div
+                    key={item.campaign_contact_id}
+                    className={`p-3.5 rounded-xl border transition-all ${
+                      isSent
+                        ? "bg-slate-50/60 border-slate-200"
+                        : "bg-white border-slate-200 shadow-xs hover:border-slate-300"
+                    }`}
+                  >
+                    {(() => {
+                      const hasDirectUrl = Boolean(
+                        item.has_linkedin_profile_url ||
+                        (item.linkedin_profile_url && item.linkedin_profile_url.includes("linkedin.com/in/")) ||
+                        (item.linkedin_url && item.linkedin_url.includes("linkedin.com/in/"))
+                      );
+                      const directUrl = item.linkedin_profile_url || item.linkedin_url;
+                      const isEditingThis = editingProspectId === item.campaign_contact_id;
+
+                      return (
+                        <>
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-xs text-slate-900">{item.full_name}</span>
+                                {isSent ? (
+                                  <Badge variant="neutral" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                                    <Check className="w-3 h-3 mr-1 inline" /> User-Confirmed (Manual)
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="neutral" className="bg-sky-50 text-sky-700 border-sky-200 text-[10px]">
+                                    Ready for Outreach
+                                  </Badge>
+                                )}
+                                {hasDirectUrl ? (
+                                  <Badge variant="neutral" className="bg-blue-50 text-blue-700 border-blue-200 text-[10px]">
+                                    Profile on File
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="neutral" className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">
+                                    ⚠️ Missing Profile URL
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                {item.job_title ? `${item.job_title} at ` : ""}{item.company_name || "Enrolled Prospect"}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {hasDirectUrl ? (
+                                <>
+                                  <a
+                                    href={directUrl!}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[#0077b5] bg-sky-50 border border-sky-200 rounded-lg hover:bg-sky-100 transition-colors"
+                                  >
+                                    <span>Open Profile</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingProspectId(item.campaign_contact_id);
+                                      setProspectUrlInput(directUrl || "");
+                                      setProspectUrlError(null);
+                                    }}
+                                    className="px-1.5 py-1 text-[11px] text-slate-500 hover:text-slate-800"
+                                  >
+                                    Edit
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <a
+                                    href={item.search_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors"
+                                    title="Search for lead on LinkedIn by name and company"
+                                  >
+                                    <span>Search on LinkedIn</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingProspectId(item.campaign_contact_id);
+                                      setProspectUrlInput("");
+                                      setProspectUrlError(null);
+                                    }}
+                                    className="px-2 py-1 text-[11px] font-semibold text-[#0077b5] border border-sky-200 rounded-lg hover:bg-sky-50"
+                                  >
+                                    + Add URL
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Inline Profile URL Edit Form */}
+                          {isEditingThis && (
+                            <div className="mt-2.5 p-2 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="font-semibold text-slate-700">LinkedIn Profile URL:</span>
+                                {prospectUrlError && (
+                                  <span className="text-rose-600 font-medium">{prospectUrlError}</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  placeholder="https://www.linkedin.com/in/username"
+                                  value={prospectUrlInput}
+                                  onChange={(e) => setProspectUrlInput(e.target.value)}
+                                  className="flex-1 text-xs px-2 py-1 border border-slate-300 rounded font-mono bg-white"
+                                  disabled={isSavingProspectUrl}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingProspectId(null);
+                                    setProspectUrlError(null);
+                                  }}
+                                  disabled={isSavingProspectUrl}
+                                  className="px-2 py-1 text-xs text-slate-600 hover:text-slate-800"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveProspectUrl(item)}
+                                  disabled={isSavingProspectUrl || !prospectUrlInput.trim()}
+                                  className="px-2.5 py-1 text-xs bg-agile-red text-white font-medium rounded hover:bg-agile-red/90 disabled:opacity-50"
+                                >
+                                  {isSavingProspectUrl ? "Saving..." : "Save URL"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+
+                    {/* Pre-rendered Personalized Connection Note */}
+                    <div className="mt-3 p-2.5 bg-slate-50 rounded-lg border border-slate-200/80 space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px] text-slate-500">
+                        <span className="font-semibold uppercase tracking-wider">Tailored Connection Note:</span>
+                        <span className="font-mono">{item.connection_note.length} / 300 chars</span>
+                      </div>
+                      <p className="text-xs text-slate-800 leading-relaxed font-sans select-all">
+                        {item.connection_note}
+                      </p>
+                    </div>
+
+                    {/* Actions: Copy Note & Confirm Sent */}
+                    <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCopyLinkedInNote(item)}
+                        className="text-xs h-7 gap-1"
+                      >
+                        {isCopied ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span className="text-emerald-700 font-semibold">Copied to Clipboard!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3 text-slate-500" />
+                            <span>Copy Note</span>
+                          </>
+                        )}
+                      </Button>
+
+                      {!isSent ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400 hidden sm:inline">
+                            Records manual user send to audit log
+                          </span>
+                          <Button
+                            type="button"
+                            variant="primary"
+                            size="sm"
+                            onClick={() => handleConfirmLinkedInSent(item)}
+                            disabled={isConfirming}
+                            className="text-xs h-7 gap-1 bg-[#0077b5] hover:bg-[#006097] text-white"
+                          >
+                            {isConfirming ? (
+                              <>
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                                <span>Recording...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check className="w-3 h-3" />
+                                <span>Confirm Sent (Manual)</span>
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-emerald-700 flex items-center gap-1 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>User-Confirmed (Logged {item.sent_at ? new Date(item.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Sent"})</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };

@@ -31,6 +31,24 @@ ALLOWED_DEAL_STATUSES = {
 }
 
 
+_contact_unmigrated_address_store = {}
+_contact_unmigrated_profile_store = {}
+
+def _check_column_exists(table_name: str, column_name: str) -> bool:
+    """Checks if a column physically exists in the database table to support unmigrated DBs safely."""
+    try:
+        from sqlalchemy import inspect
+        from app.core.database import engine
+        insp = inspect(engine)
+        if not insp.has_table(table_name):
+            # In-memory test SQLite databases before tables are created
+            return True
+        cols = [c["name"] for c in insp.get_columns(table_name)]
+        return column_name in cols
+    except Exception:
+        return True
+
+
 class Company(Base):
     """
     Target business account record.
@@ -113,21 +131,7 @@ class Company(Base):
         return f"<Company id={self.id} org_id={self.organization_id} name='{self.name}'>"
 
 
-_contact_unmigrated_address_store = {}
 
-def _check_column_exists(table_name: str, column_name: str) -> bool:
-    """Checks if a column physically exists in the database table to support unmigrated DBs safely."""
-    try:
-        from sqlalchemy import inspect
-        from app.core.database import engine
-        insp = inspect(engine)
-        if not insp.has_table(table_name):
-            # In-memory test SQLite databases before tables are created
-            return True
-        cols = [c["name"] for c in insp.get_columns(table_name)]
-        return column_name in cols
-    except Exception:
-        return True
 
 
 class Contact(Base):
@@ -291,6 +295,40 @@ class Contact(Base):
                 if cid not in _contact_unmigrated_address_store:
                     _contact_unmigrated_address_store[cid] = {}
                 _contact_unmigrated_address_store[cid]["country"] = val
+    if _check_column_exists("contacts", "linkedin_profile_url"):
+        linkedin_profile_url: Mapped[Optional[str]] = mapped_column(
+            String(500),
+            nullable=True,
+        )
+    else:
+        # Fallback property when running against unmigrated database
+        @property
+        def linkedin_profile_url(self) -> Optional[str]:
+            val = getattr(self, "_linkedin_profile_url_val", None)
+            if val is not None:
+                return val
+            cid = getattr(self, "id", None)
+            return _contact_unmigrated_profile_store.get(cid, {}).get("linkedin_profile_url")
+
+        @linkedin_profile_url.setter
+        def linkedin_profile_url(self, val: Optional[str]):
+            self._linkedin_profile_url_val = val
+            cid = getattr(self, "id", None)
+            if not cid:
+                cid = uuid.uuid4()
+                self.id = cid
+            if cid not in _contact_unmigrated_profile_store:
+                _contact_unmigrated_profile_store[cid] = {}
+            _contact_unmigrated_profile_store[cid]["linkedin_profile_url"] = val
+
+    @property
+    def linkedin_url(self) -> Optional[str]:
+        return self.linkedin_profile_url
+
+    @linkedin_url.setter
+    def linkedin_url(self, val: Optional[str]):
+        self.linkedin_profile_url = val
+
     hubspot_id: Mapped[Optional[str]] = mapped_column(
         String(100),
         nullable=True,

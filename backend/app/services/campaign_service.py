@@ -70,7 +70,7 @@ def create_campaign(
 
     # Determine or synthesize initial workflow_config
     workflow_config = data.workflow_config
-    if (not workflow_config or not isinstance(workflow_config, dict) or not workflow_config.get("nodes")) and channel in ("sms", "voice", "physical_mail"):
+    if (not workflow_config or not isinstance(workflow_config, dict) or not workflow_config.get("nodes")) and channel in ("sms", "voice", "physical_mail", "linkedin"):
         start_id = "start-node"
         step_id = "step-node-1"
         if channel == "sms":
@@ -87,7 +87,7 @@ def create_campaign(
                 },
                 "position": {"x": 250, "y": 180},
             }
-        else:
+        elif channel == "voice":
             first_node = {
                 "id": step_id,
                 "type": "voice",
@@ -96,6 +96,53 @@ def create_campaign(
                     "step_number": 1,
                     "agent_type": "outbound_sdr",
                     "phone_required": True,
+                    "delay_days": 0,
+                    "delay_hours": 0,
+                    "is_active": True,
+                },
+                "position": {"x": 250, "y": 180},
+            }
+        elif channel == "physical_mail":
+            first_node = {
+                "id": step_id,
+                "type": "physical_mail",
+                "title": "Step 1: Physical Direct Mail",
+                "config": {
+                    "step_number": 1,
+                    "poplar_campaign_id": "",
+                    "poplar_creative_id": "",
+                    "delay_days": 0,
+                    "delay_hours": 0,
+                    "is_active": True,
+                },
+                "position": {"x": 250, "y": 180},
+            }
+        elif channel == "linkedin":
+            first_node = {
+                "id": step_id,
+                "type": "linkedin",
+                "title": "Step 1: LinkedIn Outreach (Assisted)",
+                "config": {
+                    "step_number": 1,
+                    "message_type": "connection_request",
+                    "template": "Hi {contact.first_name}, would love to connect and share insights on receivables management. Let's chat: {booking_link}",
+                    "booking_url": "https://cal.com/agilereceivables/30min",
+                    "max_chars": 300,
+                    "delay_days": 0,
+                    "delay_hours": 0,
+                    "is_active": True,
+                },
+                "position": {"x": 250, "y": 180},
+            }
+        else:
+            first_node = {
+                "id": step_id,
+                "type": "email",
+                "title": "Step 1: Introduction Email",
+                "config": {
+                    "step_number": 1,
+                    "subject": "Introduction to Agile Sales & Marketing",
+                    "body": "Hi {contact.first_name},\n\nConnecting from Agile Sales & Marketing.",
                     "delay_days": 0,
                     "delay_hours": 0,
                     "is_active": True,
@@ -140,14 +187,14 @@ def create_campaign(
     has_custom_steps = False
     if workflow_config and isinstance(workflow_config, dict):
         wf_nodes = workflow_config.get("nodes", [])
-        has_custom_steps = any(isinstance(n, dict) and n.get("type") in ("email", "voice", "sms", "physical_mail") for n in wf_nodes)
+        has_custom_steps = any(isinstance(n, dict) and n.get("type") in ("email", "voice", "sms", "physical_mail", "linkedin") for n in wf_nodes)
         step_idx = 1
         for node in wf_nodes:
             if not isinstance(node, dict):
                 continue
             ntype = node.get("type")
             cfg = node.get("config", {}) or {}
-            if ntype in ("voice", "sms", "physical_mail"):
+            if ntype in ("voice", "sms", "physical_mail", "linkedin"):
                 # Multi-channel steps are authoritatively maintained in workflow_config
                 step_idx += 1
             elif ntype == "email":

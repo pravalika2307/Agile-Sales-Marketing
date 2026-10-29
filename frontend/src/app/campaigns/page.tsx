@@ -59,6 +59,7 @@ import {
   MessageSquare,
   PhoneCall,
   ShieldCheck,
+  Share2,
 } from "lucide-react";
 import { useAppMode } from "@/contexts/AppModeContext";
 import MarketingCampaignsPage from "@/app/marketing/campaigns/page";
@@ -113,7 +114,7 @@ export function SalesCampaignsContent() {
     name: string;
     type: CampaignType;
     description: string;
-    first_step_channel: "email" | "sms" | "voice" | "physical_mail";
+    first_step_channel: "email" | "sms" | "voice" | "physical_mail" | "linkedin";
   }>({
     name: "",
     type: "sales_outbound",
@@ -275,6 +276,23 @@ export function SalesCampaignsContent() {
                   step_number: 1,
                   poplar_campaign_id: "",
                   poplar_creative_id: "",
+                  delay_days: 0,
+                  delay_hours: 0,
+                  is_active: true,
+                },
+                position: { x: 250, y: 180 },
+              }
+            : channel === "linkedin"
+            ? {
+                id: stepId,
+                type: "linkedin" as const,
+                title: "Step 1: LinkedIn Outreach (Assisted)",
+                config: {
+                  step_number: 1,
+                  message_type: "connection_request",
+                  template: "Hi {contact.first_name}, would love to connect and share insights on receivables management. Let's chat: {booking_link}",
+                  booking_url: "https://cal.com/agilereceivables/30min",
+                  max_chars: 300,
                   delay_days: 0,
                   delay_hours: 0,
                   is_active: true,
@@ -794,9 +812,16 @@ export function SalesCampaignsContent() {
                           );
                         } else if (channelType === "physical_mail") {
                           return (
-                            <span className="text-xs text-rose-700 font-medium flex items-center gap-1.5">
-                              <Send className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                            <span className="text-xs text-amber-700 font-medium flex items-center gap-1.5">
+                              <Send className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                               <span>Step {stepNum}: Direct Mail</span>
+                            </span>
+                          );
+                        } else if (channelType === "linkedin") {
+                          return (
+                            <span className="text-xs text-[#0077b5] font-medium flex items-center gap-1.5">
+                              <Share2 className="w-3.5 h-3.5 text-[#0077b5] shrink-0" />
+                              <span>Step {stepNum}: LinkedIn</span>
                             </span>
                           );
                         } else {
@@ -968,14 +993,15 @@ export function SalesCampaignsContent() {
             onChange={(e) =>
               setNewCampaignForm({
                 ...newCampaignForm,
-                first_step_channel: e.target.value as "email" | "sms" | "voice" | "physical_mail",
+                first_step_channel: e.target.value as "email" | "sms" | "voice" | "physical_mail" | "linkedin",
               })
             }
             options={[
               { value: "email", label: "Email Outreach (Standard outbound cadence)" },
               { value: "sms", label: "SMS Outreach (Twilio SMS / MMS text outreach)" },
               { value: "voice", label: "AI Voice Call (Retell AI outbound SDR call)" },
-              { value: "physical_mail", label: "Physical Direct Mail (Poplar Postcards / Demand Letters)" },
+              { value: "physical_mail", label: "Physical Direct Mail (Poplar Postcards / Letters)" },
+              { value: "linkedin", label: "LinkedIn Outreach (Assisted connection notes & messaging)" },
             ]}
           />
 
@@ -1098,12 +1124,13 @@ export function SalesCampaignsContent() {
             <label className="block text-xs font-semibold text-slate-700">
               Available Channels
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
               {[
-                { id: "email", label: "Email (Included)", icon: Mail, iconClass: "text-blue-600" },
+                { id: "email", label: "Email", icon: Mail, iconClass: "text-blue-600" },
                 { id: "sms", label: "Twilio SMS", icon: MessageSquare, iconClass: "text-emerald-600" },
-                { id: "voice", label: "Retell AI Voice", icon: PhoneCall, iconClass: "text-purple-600" },
+                { id: "voice", label: "Voice SDR", icon: PhoneCall, iconClass: "text-purple-600" },
                 { id: "physical_mail", label: "Poplar Mail", icon: Send, iconClass: "text-amber-600" },
+                { id: "linkedin", label: "LinkedIn", icon: Share2, iconClass: "text-[#0077b5]" },
               ].map((ch) => {
                 const checked = aiForm.channels.includes(ch.id);
                 const Icon = ch.icon;
