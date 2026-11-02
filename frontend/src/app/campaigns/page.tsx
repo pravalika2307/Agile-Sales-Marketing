@@ -3,11 +3,14 @@
 import * as React from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
+import { PageHeader } from "@/components/layout/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { KpiCard } from "@/components/ui/kpi-card";
 import {
   Table,
   TableHeader,
@@ -110,6 +113,8 @@ export function SalesCampaignsContent() {
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
 
   // New Campaign Form (strictly aligned with CampaignCreate schema)
+  const [createNameError, setCreateNameError] = React.useState<string | null>(null);
+  const [showOptionalDetails, setShowOptionalDetails] = React.useState(false);
   const [newCampaignForm, setNewCampaignForm] = React.useState<{
     name: string;
     type: CampaignType;
@@ -220,7 +225,11 @@ export function SalesCampaignsContent() {
   // Create Campaign Handler (strictly persists via backend API)
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCampaignForm.name.trim()) return;
+    if (!newCampaignForm.name.trim()) {
+      setCreateNameError("Please enter a campaign name before proceeding.");
+      return;
+    }
+    setCreateNameError(null);
 
     setIsCreating(true);
     setErrorMessage(null);
@@ -426,60 +435,55 @@ export function SalesCampaignsContent() {
 
   return (
     <AppShell onNewCampaignClick={() => setIsNewCampaignModalOpen(true)}>
-      {/* 1. Page Header with Breadcrumbs */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-slate-200/80">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold text-slate-500">Sales</span>
-            <span className="text-slate-300">/</span>
-            <span className="text-xs font-semibold text-agile-red">Campaigns</span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-header">
-            {isMarketing ? "Marketing Campaigns" : "Campaign Sequences & Cadence"}
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            {isMarketing
-              ? "Create, manage, and monitor your marketing broadcasts and nurture sequences."
-              : "Multi-channel outreach sequences, AI voice SDR calling, and CRM contact cadences."}
-          </p>
-        </div>
+      {/* 1. Page Header */}
+      <PageHeader
+        breadcrumbs={[
+          { label: "Sales", href: "/sales" },
+          { label: "Campaigns" },
+        ]}
+        title={isMarketing ? "Marketing Campaigns" : "Campaign Sequences & Cadence"}
+        description={
+          isMarketing
+            ? "Create, manage, and monitor your marketing broadcasts and nurture sequences."
+            : "Multi-channel outreach sequences, AI voice SDR calling, and CRM contact cadences."
+        }
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={loadCampaigns}
+              disabled={isLoading}
+              className="text-xs inline-flex items-center gap-1.5"
+              title="Refresh campaigns"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-agile-red" : ""}`} />
+              <span>Refresh</span>
+            </Button>
 
-        {/* Top-right Primary Action: + New Campaign */}
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={loadCampaigns}
-            disabled={isLoading}
-            className="text-xs inline-flex items-center gap-1.5"
-            title="Refresh campaigns"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin text-agile-red" : ""}`} />
-            <span>Refresh</span>
-          </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsAIGeneratorModalOpen(true)}
+              className="text-xs inline-flex items-center gap-1.5 shadow-xs"
+              title="Generate multi-touch campaign sequence with AI"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-agile-red" />
+              <span>Generate with AI</span>
+            </Button>
 
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setIsAIGeneratorModalOpen(true)}
-            className="text-xs inline-flex items-center gap-1.5 shadow-xs border-slate-200 hover:bg-slate-50 text-header hover:text-agile-red"
-            title="Generate multi-touch campaign sequence with AI"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-agile-red" />
-            <span>Generate with AI</span>
-          </Button>
-
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setIsNewCampaignModalOpen(true)}
-            className="text-xs inline-flex items-center gap-1.5 shadow-xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New Campaign</span>
-          </Button>
-        </div>
-      </div>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => setIsNewCampaignModalOpen(true)}
+              className="text-xs inline-flex items-center gap-1.5 shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New Campaign</span>
+            </Button>
+          </>
+        }
+      />
 
       {/* Error alert banner */}
       {errorMessage && (
@@ -498,52 +502,94 @@ export function SalesCampaignsContent() {
       )}
 
       {/* Top Pacing Overview & KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Total Campaigns</span>
-            <Layers className="w-4 h-4 text-slate-400" />
-          </div>
-          <div className="text-2xl font-bold text-header">{campaignsList.length}</div>
-          <p className="text-[11px] text-slate-400 mt-0.5">Configured sequence workflows</p>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard
+          title="Total Campaigns"
+          subtitle="Configured sequence workflows"
+          value={String(totalCampaigns)}
+          icon={<Layers className="w-4 h-4 text-slate-500" />}
+          breakdown={[
+            {
+              label: "Active",
+              value: String(campaignsList.filter((c) => c.status === "active").length),
+            },
+            {
+              label: "Draft",
+              value: String(campaignsList.filter((c) => c.status === "draft").length),
+            },
+            {
+              label: "Completed",
+              value: String(campaignsList.filter((c) => c.status === "completed").length),
+            },
+          ]}
+        />
 
-        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700">Active Sequences</span>
-            <Play className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="text-2xl font-bold text-emerald-700">
-            {campaignsList.filter((c) => c.status === "active").length}
-          </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">Currently dispatching cadences</p>
-        </div>
+        <KpiCard
+          title="Active Sequences"
+          subtitle="Currently dispatching cadences"
+          value={String(campaignsList.filter((c) => c.status === "active").length)}
+          trend={{
+            value: `${campaignsList.filter((c) => c.status === "active").length} active`,
+            direction:
+              campaignsList.filter((c) => c.status === "active").length > 0
+                ? "up"
+                : "neutral",
+            label: "Running cadences",
+          }}
+          icon={<Play className="w-4 h-4 text-emerald-600" />}
+        />
 
-        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Enrolled Contacts</span>
-            <Users className="w-4 h-4 text-slate-400" />
-          </div>
-          <div className="text-2xl font-bold text-header">
-            {campaignsList.reduce((acc, c) => acc + (c.contactsCount || 0), 0)}
-          </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">Total prospects in pipeline</p>
-        </div>
+        <KpiCard
+          title="Audience Enrolled"
+          subtitle="Prospects in active sequences"
+          value={String(
+            campaignsList.reduce((acc, c) => acc + (c.contactsCount || 0), 0)
+          )}
+          icon={<Users className="w-4 h-4 text-slate-500" />}
+          breakdown={[
+            {
+              label: "Total Enrolled",
+              value: String(
+                campaignsList.reduce((acc, c) => acc + (c.contactsCount || 0), 0)
+              ),
+            },
+            {
+              label: "Avg / Campaign",
+              value:
+                campaignsList.length > 0
+                  ? String(
+                      Math.round(
+                        campaignsList.reduce(
+                          (acc, c) => acc + (c.contactsCount || 0),
+                          0
+                        ) / campaignsList.length
+                      )
+                    )
+                  : "0",
+            },
+          ]}
+        />
 
-        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
-          <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Verified Deliveries</span>
-            <Send className="w-4 h-4 text-slate-400" />
-          </div>
-          <div className="text-2xl font-bold text-header">
-            {campaignsList.reduce((acc, c) => acc + (c.metrics?.sent || 0), 0)}
-          </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">Dispatched touchpoints</p>
-        </div>
+        <KpiCard
+          title="Outreach Sent"
+          subtitle="Multi-channel touches dispatched"
+          value={String(
+            campaignsList.reduce((acc, c) => acc + (c.metrics?.sent || 0), 0)
+          )}
+          trend={{
+            value: `${campaignsList.reduce((acc, c) => acc + (c.metrics?.sent || 0), 0)} sent`,
+            direction:
+              campaignsList.reduce((acc, c) => acc + (c.metrics?.sent || 0), 0) > 0
+                ? "up"
+                : "neutral",
+            label: "Dispatched touchpoints",
+          }}
+          icon={<Send className="w-4 h-4 text-slate-500" />}
+        />
       </div>
 
       {/* 2. Compact CRM Control Area */}
-      <Card className="border border-slate-200 shadow-[0_1px_3px_rgba(0,0,0,0.03)] bg-white">
+      <Card className="border border-slate-200 shadow-xs bg-white">
         <CardContent className="p-3.5 sm:p-4 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
             {/* Search Input */}
@@ -573,7 +619,7 @@ export function SalesCampaignsContent() {
                   { value: "ALL", label: "All Types" },
                   { value: "sales_outbound", label: "Sales Outbound" },
                   { value: "marketing_social", label: "Marketing Social" },
-                  { value: "hybrid", label: "Hybrid" },
+                  { value: "hybrid", label: "Hybrid Sequence" },
                 ]}
               />
             </div>
@@ -613,6 +659,23 @@ export function SalesCampaignsContent() {
               />
             </div>
           </div>
+
+          {/* Active Filter Indicator & Reset Action */}
+          {(searchQuery.trim() !== "" || typeFilter !== "ALL" || statusFilter !== "ALL") && (
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
+              <span className="text-slate-500">
+                Showing <strong>{filteredCampaigns.length}</strong> of {totalCampaigns} campaigns matching active filters
+              </span>
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="text-[#d7525a] hover:underline font-medium inline-flex items-center gap-1"
+              >
+                <span>Reset all filters</span>
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -623,7 +686,7 @@ export function SalesCampaignsContent() {
             {isMarketing ? "Marketing Campaigns" : "Outreach Campaigns"}
           </h2>
           <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold text-xs border border-slate-200">
-            {totalCampaigns} campaigns
+            {totalCampaigns} {totalCampaigns === 1 ? "campaign" : "campaigns"}
           </span>
         </div>
       </div>
@@ -679,46 +742,62 @@ export function SalesCampaignsContent() {
             ))}
           </div>
         ) : campaignsList.length === 0 ? (
-          /* Professional Empty State (Data-Integrity Compliant) */
-          <div className="rounded-xl border border-slate-200 bg-white p-12 text-center flex flex-col items-center justify-center space-y-3">
-            <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400">
-              <Send className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-semibold text-header">
-                No campaigns yet
-              </h3>
-              <p className="text-xs text-slate-500 mt-1 max-w-sm">
-                {isMarketing
-                  ? "Create a campaign to start organizing your marketing sequences and social broadcasts."
-                  : "Create a campaign to start organizing your sales outreach and sequence cadence."}
-              </p>
-            </div>
-            <div className="flex items-center gap-2 pt-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setIsAIGeneratorModalOpen(true)}
-                className="text-xs border-slate-200 hover:bg-slate-50 text-header hover:text-agile-red shadow-xs"
-              >
-                <Sparkles className="w-3.5 h-3.5 mr-1 text-agile-red" />
-                Generate with AI
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setIsNewCampaignModalOpen(true)}
-                className="text-xs shadow-xs"
-              >
-                <Plus className="w-3.5 h-3.5 mr-1" />
-                New Campaign
-              </Button>
-              <Link href="/leads">
-                <Button variant="secondary" size="sm" className="text-xs">
-                  {isMarketing ? "View Audience" : "View Leads"}
+          /* Empty State */
+          <EmptyState
+            icon={Send}
+            title="No campaigns yet"
+            description={
+              isMarketing
+                ? "Create a campaign to start organizing your marketing sequences and social broadcasts."
+                : "Create a campaign to start organizing your sales outreach and sequence cadence."
+            }
+            action={
+              <div className="flex items-center gap-2 pt-1 flex-wrap justify-center">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIsAIGeneratorModalOpen(true)}
+                  className="text-xs shadow-xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5 mr-1 text-agile-red" />
+                  Generate with AI
                 </Button>
-              </Link>
-            </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setIsNewCampaignModalOpen(true)}
+                  className="text-xs shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1" />
+                  New Campaign
+                </Button>
+                <Link href="/leads">
+                  <Button variant="secondary" size="sm" className="text-xs">
+                    {isMarketing ? "View Audience" : "View Leads"}
+                  </Button>
+                </Link>
+              </div>
+            }
+          />
+        ) : filteredCampaigns.length === 0 ? (
+          /* Filter Empty State */
+          <div className="bg-white border border-slate-200 rounded-xl p-8">
+            <EmptyState
+              icon={Search}
+              title="No campaigns match your filters"
+              description="No campaigns match your active search and filter criteria. Adjust your search query, type, or status filter."
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleResetFilters}
+                  className="text-xs inline-flex items-center gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset All Filters</span>
+                </Button>
+              }
+            />
           </div>
         ) : (
           /* Main Campaigns Table */
@@ -727,12 +806,11 @@ export function SalesCampaignsContent() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Campaign Name</TableHead>
-                  <TableHead>Type</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Contacts</TableHead>
-                  <TableHead>Current Step</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Last Modified</TableHead>
+                  <TableHead>Audience</TableHead>
+                  <TableHead>Sequence Steps</TableHead>
+                  <TableHead>Outreach Sent</TableHead>
+                  <TableHead>Last Updated</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -741,24 +819,32 @@ export function SalesCampaignsContent() {
                   <TableRow
                     key={camp.id}
                     onClick={() => setInspectedCampaign(camp)}
-                    className="cursor-pointer"
+                    className="cursor-pointer hover:bg-slate-50/80 transition-colors"
                   >
-                    {/* Campaign Name */}
+                    {/* Campaign Name & Context */}
                     <TableCell>
-                      <div className="flex flex-col">
+                      <div className="flex flex-col py-0.5">
                         <span className="font-semibold text-header text-sm hover:text-agile-red transition-colors flex items-center gap-1.5">
                           <Send className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           {camp.name}
                         </span>
-                        <span className="text-[11px] font-mono text-slate-400">
-                          {camp.id.substring(0, 8)}...
-                        </span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[11px] font-medium text-slate-500">
+                            {CAMPAIGN_TYPE_LABELS[camp.type] || camp.type}
+                          </span>
+                          {camp.description && (
+                            <>
+                              <span className="text-slate-300">•</span>
+                              <span
+                                className="text-[11px] text-slate-400 truncate max-w-[280px]"
+                                title={camp.description}
+                              >
+                                {camp.description}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </TableCell>
-
-                    {/* Campaign Type */}
-                    <TableCell className="font-medium text-slate-700 text-xs sm:text-sm">
-                      {CAMPAIGN_TYPE_LABELS[camp.type]}
                     </TableCell>
 
                     {/* Campaign Status */}
@@ -781,100 +867,137 @@ export function SalesCampaignsContent() {
 
                     {/* Enrolled Contacts Count */}
                     <TableCell>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200">
                         <Users className="w-3 h-3 text-slate-400" />
-                        {camp.contactsCount}
+                        {camp.contactsCount || 0}
                       </span>
                     </TableCell>
 
-                    {/* Current Sequence Step */}
+                    {/* Sequence Steps & Channel */}
                     <TableCell>
                       {(() => {
-                        const firstStep = camp.steps?.find((s) => s.stepNumber === 1) || camp.steps?.[0];
+                        const stepCount =
+                          camp.steps?.length ||
+                          (camp.workflowConfig?.nodes
+                            ? camp.workflowConfig.nodes.filter(
+                                (n) => n.type !== "start"
+                              ).length
+                            : 1);
+                        const firstStep =
+                          camp.steps?.find((s) => s.stepNumber === 1) ||
+                          camp.steps?.[0];
                         const wfNodes = camp.workflowConfig?.nodes || [];
-                        const firstActionNode = wfNodes.find((n) => n.type !== "start");
-                        const channelType = firstStep?.stepType || firstActionNode?.type || "email";
-                        const stepNum = camp.currentStepNumber || 1;
+                        const firstActionNode = wfNodes.find(
+                          (n) => n.type !== "start"
+                        );
+                        const channelType =
+                          firstStep?.stepType ||
+                          firstActionNode?.type ||
+                          "email";
 
-                        if (channelType === "voice") {
-                          return (
-                            <span className="text-xs text-purple-700 font-medium flex items-center gap-1.5">
-                              <PhoneCall className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                              <span>Step {stepNum}: Voice SDR</span>
+                        const channelConfig = {
+                          voice: {
+                            label: "Voice SDR",
+                            icon: PhoneCall,
+                            color: "text-purple-700 bg-purple-50 border-purple-200",
+                          },
+                          sms: {
+                            label: "SMS",
+                            icon: MessageSquare,
+                            color: "text-emerald-700 bg-emerald-50 border-emerald-200",
+                          },
+                          physical_mail: {
+                            label: "Direct Mail",
+                            icon: Send,
+                            color: "text-amber-700 bg-amber-50 border-amber-200",
+                          },
+                          linkedin: {
+                            label: "LinkedIn",
+                            icon: Share2,
+                            color: "text-[#0077b5] bg-blue-50 border-blue-200",
+                          },
+                          email: {
+                            label: "Email",
+                            icon: Mail,
+                            color: "text-slate-700 bg-slate-100 border-slate-200",
+                          },
+                        }[channelType] || {
+                          label: "Email",
+                          icon: Mail,
+                          color: "text-slate-700 bg-slate-100 border-slate-200",
+                        };
+
+                        const IconComponent = channelConfig.icon;
+                        return (
+                          <div className="flex items-center gap-2 text-xs">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border font-medium ${channelConfig.color}`}
+                            >
+                              <IconComponent className="w-3 h-3 shrink-0" />
+                              <span>{channelConfig.label}</span>
                             </span>
-                          );
-                        } else if (channelType === "sms") {
-                          return (
-                            <span className="text-xs text-emerald-700 font-medium flex items-center gap-1.5">
-                              <MessageSquare className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              <span>Step {stepNum}: SMS</span>
+                            <span className="text-slate-500 text-[11px]">
+                              {stepCount} {stepCount === 1 ? "step" : "steps"}
                             </span>
-                          );
-                        } else if (channelType === "physical_mail") {
-                          return (
-                            <span className="text-xs text-amber-700 font-medium flex items-center gap-1.5">
-                              <Send className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                              <span>Step {stepNum}: Direct Mail</span>
-                            </span>
-                          );
-                        } else if (channelType === "linkedin") {
-                          return (
-                            <span className="text-xs text-[#0077b5] font-medium flex items-center gap-1.5">
-                              <Share2 className="w-3.5 h-3.5 text-[#0077b5] shrink-0" />
-                              <span>Step {stepNum}: LinkedIn</span>
-                            </span>
-                          );
-                        } else {
-                          return (
-                            <span className="text-xs text-slate-700 font-medium flex items-center gap-1.5">
-                              <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              <span>Step {stepNum}: Email</span>
-                            </span>
-                          );
-                        }
+                          </div>
+                        );
                       })()}
                     </TableCell>
 
-                    {/* Created Date */}
-                    <TableCell className="text-xs text-slate-500">
-                      {new Date(camp.createdAt).toLocaleDateString()}
+                    {/* Outreach Sent */}
+                    <TableCell>
+                      <div className="flex items-center gap-1.5 text-xs text-slate-700 font-medium">
+                        <Send className="w-3 h-3 text-slate-400" />
+                        <span>{camp.metrics?.sent || 0}</span>
+                        <span className="text-slate-400 text-[11px] font-normal">
+                          sent
+                        </span>
+                      </div>
                     </TableCell>
 
                     {/* Updated Date */}
                     <TableCell className="text-xs text-slate-500">
-                      {new Date(camp.updatedAt).toLocaleDateString()}
+                      {new Date(camp.updatedAt).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
                     </TableCell>
 
                     {/* Actions */}
-                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                    <TableCell
+                      className="text-right"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <div className="flex items-center justify-end gap-1.5">
                         <Button
+                          variant="secondary"
+                          size="xs"
+                          onClick={() => setInspectedCampaign(camp)}
+                          className="h-7 text-xs text-slate-700 font-medium"
+                          title="Open campaign details, audience, and outreach"
+                        >
+                          <Eye className="w-3.5 h-3.5 mr-1 text-slate-400" />
+                          View & Manage
+                        </Button>
+                        <Button
                           variant="outline"
-                          size="sm"
+                          size="xs"
                           onClick={() => setWorkflowBuilderCampaign(camp)}
                           className="h-7 text-xs text-agile-red hover:bg-agile-lightorange hover:text-agile-red border-agile-red/30"
-                          title="Open Visual Campaign Workflow Builder"
+                          title="Open Visual Workflow Editor"
                         >
                           <GitBranch className="w-3.5 h-3.5 mr-1" />
                           Workflow
                         </Button>
                         <Button
                           variant="ghost"
-                          size="sm"
-                          onClick={() => setInspectedCampaign(camp)}
-                          className="h-7 text-xs text-slate-600 hover:bg-slate-100"
-                        >
-                          <Eye className="w-3.5 h-3.5 mr-1" />
-                          View
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
+                          size="xs"
                           onClick={() => {
                             setDeleteCampaignError(null);
                             setCampaignToDelete(camp);
                           }}
-                          className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                          className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded"
                           title="Delete Campaign"
                           aria-label={`Delete ${camp.name}`}
                         >
@@ -961,67 +1084,112 @@ export function SalesCampaignsContent() {
               Generate with AI
             </Button>
           </div>
-          <Input
-            label="Campaign Name *"
-            required
-            value={newCampaignForm.name}
-            onChange={(e) =>
-              setNewCampaignForm({ ...newCampaignForm, name: e.target.value })
-            }
-            placeholder="e.g. Executive Outbound Sequence"
-          />
-
-          <Select
-            label="Campaign Type"
-            value={newCampaignForm.type}
-            onChange={(e) =>
-              setNewCampaignForm({
-                ...newCampaignForm,
-                type: e.target.value as CampaignType,
-              })
-            }
-            options={[
-              { value: "sales_outbound", label: "Sales Outbound (B2B Lead Cadence)" },
-              { value: "marketing_social", label: "Marketing Social" },
-              { value: "hybrid", label: "Hybrid (Multi-touch Outreach)" },
-            ]}
-          />
-
-          <Select
-            label="Initial Communication Channel"
-            value={newCampaignForm.first_step_channel}
-            onChange={(e) =>
-              setNewCampaignForm({
-                ...newCampaignForm,
-                first_step_channel: e.target.value as "email" | "sms" | "voice" | "physical_mail" | "linkedin",
-              })
-            }
-            options={[
-              { value: "email", label: "Email Outreach (Standard outbound cadence)" },
-              { value: "sms", label: "SMS Outreach (Twilio SMS / MMS text outreach)" },
-              { value: "voice", label: "AI Voice Call (Retell AI outbound SDR call)" },
-              { value: "physical_mail", label: "Physical Direct Mail (Poplar Postcards / Letters)" },
-              { value: "linkedin", label: "LinkedIn Outreach (Assisted connection notes & messaging)" },
-            ]}
-          />
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">
-              Campaign Description (Optional)
-            </label>
-            <textarea
-              value={newCampaignForm.description}
-              onChange={(e) =>
-                setNewCampaignForm({ ...newCampaignForm, description: e.target.value })
-              }
-              placeholder="e.g. Multi-touch outbound cadence targeting enterprise sales leaders"
-              rows={2}
-              className="w-full rounded-md border border-slate-300 p-2 text-xs focus:border-agile-red focus:outline-none"
+            <Input
+              label="Campaign Name *"
+              required
+              value={newCampaignForm.name}
+              onChange={(e) => {
+                setNewCampaignForm({ ...newCampaignForm, name: e.target.value });
+                if (createNameError) setCreateNameError(null);
+              }}
+              placeholder="e.g. Q4 Executive Outbound Sequence"
+              error={createNameError || undefined}
             />
+            <p className="text-[11px] text-slate-500 mt-1">
+              A recognizable title for your team and CRM reporting.
+            </p>
           </div>
 
-          <div className="rounded-lg bg-slate-50 p-3 border border-slate-200 text-xs text-slate-600">
-            <strong>Lifecycle Rule:</strong> New campaigns are initially created in <code>draft</code> status. Once created, you will immediately enter the <strong>Visual Workflow Editor</strong> to configure steps, delays, templates, and condition branches before activation.
+          <div>
+            <Select
+              label="Campaign Type"
+              value={newCampaignForm.type}
+              onChange={(e) =>
+                setNewCampaignForm({
+                  ...newCampaignForm,
+                  type: e.target.value as CampaignType,
+                })
+              }
+              options={[
+                { value: "sales_outbound", label: "Sales Outbound — Direct prospecting to new B2B leads" },
+                { value: "marketing_social", label: "Marketing Social — Social broadcasts & content sequences" },
+                { value: "hybrid", label: "Hybrid Sequence — Inbound lead follow-up & outbound nurture" },
+              ]}
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Sets sequence categorization and CRM contact sync rules.
+            </p>
+          </div>
+
+          <div>
+            <Select
+              label="Initial Communication Channel"
+              value={newCampaignForm.first_step_channel}
+              onChange={(e) =>
+                setNewCampaignForm({
+                  ...newCampaignForm,
+                  first_step_channel: e.target.value as "email" | "sms" | "voice" | "physical_mail" | "linkedin",
+                })
+              }
+              options={[
+                { value: "email", label: "Email Outreach (Standard outbound cadence)" },
+                { value: "sms", label: "SMS Outreach (Twilio SMS / MMS text message)" },
+                { value: "voice", label: "AI Voice Call (Retell AI autonomous SDR phone call)" },
+                { value: "physical_mail", label: "Physical Direct Mail (Poplar Postcards / Letters)" },
+                { value: "linkedin", label: "LinkedIn Outreach (Assisted connection notes & messaging)" },
+              ]}
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Sets the first touchpoint. You can add more channels, delays, and branch logic in the visual workflow editor.
+            </p>
+          </div>
+
+          <div className="pt-1">
+            {!showOptionalDetails ? (
+              <button
+                type="button"
+                onClick={() => setShowOptionalDetails(true)}
+                className="text-xs text-agile-red hover:underline font-medium inline-flex items-center gap-1"
+              >
+                <span>+ Add optional campaign description</span>
+              </button>
+            ) : (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-medium text-slate-700">
+                    Campaign Description (Optional)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowOptionalDetails(false)}
+                    className="text-[11px] text-slate-400 hover:text-slate-600"
+                  >
+                    Hide
+                  </button>
+                </div>
+                <textarea
+                  value={newCampaignForm.description}
+                  onChange={(e) =>
+                    setNewCampaignForm({ ...newCampaignForm, description: e.target.value })
+                  }
+                  placeholder="e.g. Multi-touch outbound cadence targeting enterprise sales leaders"
+                  rows={2}
+                  className="w-full rounded-md border border-slate-300 p-2 text-xs focus:border-agile-red focus:outline-none"
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-lg bg-slate-50 p-3 border border-slate-200 text-xs text-slate-600 flex items-start gap-2.5">
+            <ShieldCheck className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold text-slate-700">Safe Draft Mode:</span>
+              <p className="text-[11px] text-slate-600 mt-0.5">
+                New campaigns always start in <strong>Draft</strong> status. No messages or calls are dispatched until you review your sequence and explicitly activate the campaign.
+              </p>
+            </div>
           </div>
         </form>
       </Modal>
@@ -1282,10 +1450,11 @@ export function SalesCampaignsContent() {
             <Button
               variant="primary"
               disabled={isDeletingCampaign}
+              isLoading={isDeletingCampaign}
               onClick={handleConfirmDeleteCampaign}
               className="bg-rose-600 hover:bg-rose-700 text-white border-rose-600"
             >
-              {isDeletingCampaign ? "Deleting Campaign..." : "Delete Campaign"}
+              Delete Campaign
             </Button>
           </>
         }

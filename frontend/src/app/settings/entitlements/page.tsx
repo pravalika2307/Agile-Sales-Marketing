@@ -332,7 +332,7 @@ export default function CustomerEntitlementsPage() {
               >
                 <option value="sms">SMS & MMS Outreach (Twilio)</option>
                 <option value="voice">AI Voice SDR Calls (Retell AI)</option>
-                <option value="ringless_voicemail">Ringless Voicemail (RVM)</option>
+                <option value="ringless_voicemail">Direct Voicemail Delivery</option>
                 <option value="physical_mail">Physical Direct Mail (Poplar)</option>
               </select>
             </div>
@@ -376,11 +376,17 @@ export default function CustomerEntitlementsPage() {
             )}
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <Button type="button" variant="outline" size="sm" onClick={() => setRequestModalOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setRequestModalOpen(false)}
+                disabled={submitting}
+              >
                 Cancel
               </Button>
-              <Button type="submit" size="sm" disabled={submitting}>
-                {submitting ? "Submitting..." : "Submit Upgrade Request"}
+              <Button type="submit" size="sm" disabled={submitting} isLoading={submitting}>
+                Submit Upgrade Request
               </Button>
             </div>
           </form>

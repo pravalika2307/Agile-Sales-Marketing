@@ -3,11 +3,13 @@
 import * as React from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
+import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { ConfirmModal } from "@/components/ui/modal";
 import { DealDetailDrawer } from "@/components/pipeline/deal-detail-drawer";
 import { CreateDealModal } from "@/components/pipeline/create-deal-modal";
 import {
@@ -66,6 +68,8 @@ export default function PipelinePage() {
   const [inspectedDeal, setInspectedDeal] = React.useState<DealItem | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = React.useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = React.useState(false);
+  const [dealToDelete, setDealToDelete] = React.useState<DealItem | null>(null);
+  const [isDeletingDeal, setIsDeletingDeal] = React.useState(false);
 
   // Drag and drop state
   const [draggingDealId, setDraggingDealId] = React.useState<string | null>(null);
@@ -229,15 +233,27 @@ export default function PipelinePage() {
     }
   };
 
-  const handleDeleteDeal = async (dealId: string) => {
+  const handleDeleteDeal = (dealId: string) => {
+    const target = deals.find((d) => d.id === dealId) || inspectedDeal;
+    if (target) {
+      setDealToDelete(target);
+    }
+  };
+
+  const handleConfirmDeleteDeal = async () => {
+    if (!dealToDelete) return;
+    setIsDeletingDeal(true);
     try {
-      await deleteDeal(dealId);
-      setDeals((prev) => prev.filter((d) => d.id !== dealId));
+      await deleteDeal(dealToDelete.id);
+      setDeals((prev) => prev.filter((d) => d.id !== dealToDelete.id));
       setIsDrawerOpen(false);
       setInspectedDeal(null);
+      setDealToDelete(null);
     } catch (err) {
       console.error("Failed to delete deal:", err);
-      alert("Failed to delete deal from backend.");
+      setErrorMessage(err instanceof Error ? err.message : "Failed to delete deal from backend.");
+    } finally {
+      setIsDeletingDeal(false);
     }
   };
 
@@ -248,7 +264,9 @@ export default function PipelinePage() {
       setIsCreateModalOpen(false);
     } catch (err: unknown) {
       console.error("Failed to create deal:", err);
-      alert(err instanceof Error ? err.message : "Failed to create deal.");
+      const msg = err instanceof Error ? err.message : "Failed to create deal.";
+      setErrorMessage(msg);
+      throw err;
     }
   };
 
@@ -280,59 +298,60 @@ export default function PipelinePage() {
     <AppShell>
       <div className="space-y-6">
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold tracking-tight text-header">
-                Pipeline
-              </h1>
-              {pipelines.length > 1 ? (
-                <div className="w-56">
-                  <Select
-                    value={activePipeline?.id || ""}
-                    onChange={(e) => handlePipelineChange(e.target.value)}
-                    className="text-xs h-7 py-0"
-                  >
-                    {pipelines.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} {p.isDefault ? "(Default)" : ""}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-              ) : (
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-agile-lightorange text-agile-red border border-agile-outlinered/30 flex items-center gap-1.5">
-                  <Layers className="w-3 h-3 text-agile-red" />
-                  {activePipeline?.name || "Default Sales Pipeline"}
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-secondary-text mt-1">
-              Track and manage commercial sales opportunities through live pipeline stages.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={refreshDeals}
-              disabled={isRefreshing}
-              className="border-slate-200 text-slate-700 hover:bg-slate-50 text-xs h-8"
-              title="Refresh deals"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 mr-1 ${isRefreshing ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-            <Button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="bg-agile-red hover:bg-agile-red/90 text-white font-medium text-xs shadow-xs h-8"
-            >
-              <Plus className="w-3.5 h-3.5 mr-1.5" />
-              + Create Deal
-            </Button>
-          </div>
-        </div>
+        <PageHeader
+          breadcrumbs={[
+            { label: "Sales", href: "/sales" },
+            { label: "Pipeline" },
+          ]}
+          title="Pipeline"
+          badge={
+            pipelines.length > 1 ? (
+              <div className="w-52">
+                <Select
+                  value={activePipeline?.id || ""}
+                  onChange={(e) => handlePipelineChange(e.target.value)}
+                  className="text-xs h-8"
+                >
+                  {pipelines.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.isDefault ? "(Default)" : ""}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            ) : (
+              <Badge variant="coral">
+                <Layers className="w-3 h-3 text-[#d7525a]" />
+                {activePipeline?.name || "Default Sales Pipeline"}
+              </Badge>
+            )
+          }
+          description="Track and manage commercial sales opportunities through live pipeline stages."
+          actions={
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={refreshDeals}
+                disabled={isRefreshing}
+                className="text-xs"
+                title="Refresh deals"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isRefreshing ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setIsCreateModalOpen(true)}
+                className="text-xs shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                Create Deal
+              </Button>
+            </>
+          }
+        />
 
         {errorMessage && (
           <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs p-3 rounded-lg flex items-center justify-between">
@@ -645,6 +664,21 @@ export default function PipelinePage() {
         stages={stages}
         contacts={availableContacts}
         onCreateDeal={handleCreateDeal}
+      />
+
+      {/* Delete Deal Confirmation Modal */}
+      <ConfirmModal
+        isOpen={Boolean(dealToDelete)}
+        onClose={() => {
+          if (!isDeletingDeal) setDealToDelete(null);
+        }}
+        title="Delete Opportunity Deal"
+        message={`Are you sure you want to permanently delete "${dealToDelete?.name}"?`}
+        consequenceNotice="This will permanently remove this opportunity from your sales pipeline. Any associated contact and company records will remain intact in your CRM."
+        confirmLabel="Delete Deal"
+        confirmVariant="danger"
+        isLoading={isDeletingDeal}
+        onConfirm={handleConfirmDeleteDeal}
       />
     </AppShell>
   );

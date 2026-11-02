@@ -462,7 +462,10 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
   // Remove a step
   const handleRemoveNode = (nodeId: string) => {
     if (workflow.nodes.find((n) => n.id === nodeId)?.type === "start") {
-      alert("The Campaign Start node cannot be removed.");
+      setSaveMessage({
+        type: "error",
+        text: "The Campaign Start step is required and cannot be removed.",
+      });
       return;
     }
 

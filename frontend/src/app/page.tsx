@@ -3,28 +3,34 @@
 import * as React from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
+import { PageHeader } from "@/components/layout/page-header";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Modal } from "@/components/ui/modal";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { StatusIndicator } from "@/components/ui/status-indicator";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Modal } from "@/components/ui/modal";
-import { ChartCard } from "@/components/charts/chart-card";
-import { BarChart } from "@/components/charts/bar-chart";
-import { LineChart } from "@/components/charts/line-chart";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Tooltip } from "@/components/ui/tooltip";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Users,
+  Send,
   PhoneCall,
   Mail,
   TrendingUp,
-  Download,
   Plus,
-  Palette,
+  UserSearch,
+  AlertTriangle,
+  CheckCircle2,
   Layers,
+  ArrowRight,
+  ShieldCheck,
+  Building2,
+  Calendar,
+  Sparkles,
+  MessageSquare,
+  Share2,
+  RefreshCw,
 } from "lucide-react";
 
 import { fetchCRMLeads, CRMLead } from "@/services/crmLeadService";
@@ -49,640 +55,651 @@ export default function DashboardPage({
   const isMarketing = effectiveMode === "marketing";
 
   const [modalOpen, setModalOpen] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState("calls");
-  const [timeRange, setTimeRange] = React.useState("30d");
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [leadsLoading, setLeadsLoading] = React.useState(true);
+  const [leadsError, setLeadsError] = React.useState<string | null>(null);
 
   // Genuine CRM records loaded from PostgreSQL backend
   const [crmLeads, setCrmLeads] = React.useState<CRMLead[]>([]);
   const [analytics, setAnalytics] = React.useState<AnalyticsOverviewResponse | null>(null);
   const [pipelines, setPipelines] = React.useState<PipelineItem[]>([]);
 
-  React.useEffect(() => {
-    async function loadMetrics() {
-      try {
-        const [leadsData, analyticsData, pipelinesData] = await Promise.allSettled([
-          fetchCRMLeads({ excludeTest: true }),
-          fetchAnalyticsOverview(),
-          fetchPipelines(),
-        ]);
-        if (leadsData.status === "fulfilled") {
-          setCrmLeads(leadsData.value.items);
-        }
-        if (analyticsData.status === "fulfilled") {
-          setAnalytics(analyticsData.value);
-        }
-        if (pipelinesData.status === "fulfilled") {
-          setPipelines(pipelinesData.value);
-        }
-      } catch (err) {
-        console.error("Dashboard failed to load CRM leads, analytics, or pipelines:", err);
+  const loadDashboardData = React.useCallback(async () => {
+    setIsLoading(true);
+    setLeadsLoading(true);
+    setLeadsError(null);
+    try {
+      const [leadsData, analyticsData, pipelinesData] = await Promise.allSettled([
+        fetchCRMLeads({ excludeTest: true }),
+        fetchAnalyticsOverview(),
+        fetchPipelines(),
+      ]);
+      if (leadsData.status === "fulfilled") {
+        setCrmLeads(leadsData.value.items);
+      } else {
+        setLeadsError("Unable to load recent leads from the CRM database.");
       }
+      if (analyticsData.status === "fulfilled") {
+        setAnalytics(analyticsData.value);
+      }
+      if (pipelinesData.status === "fulfilled") {
+        setPipelines(pipelinesData.value);
+      }
+    } catch (err) {
+      console.error("Dashboard failed to load CRM leads, analytics, or pipelines:", err);
+      setLeadsError("An unexpected error occurred while loading dashboard metrics.");
+    } finally {
+      setIsLoading(false);
+      setLeadsLoading(false);
     }
-    loadMetrics();
   }, []);
 
+  const handleRetryLeads = async () => {
+    setLeadsLoading(true);
+    setLeadsError(null);
+    try {
+      const leadsData = await fetchCRMLeads({ excludeTest: true });
+      setCrmLeads(leadsData.items);
+    } catch (err) {
+      console.error("Retry failed to load leads:", err);
+      setLeadsError("Unable to reload leads. Please check your connection and try again.");
+    } finally {
+      setLeadsLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
+
   // Compute metrics strictly from genuine database records
+  const totalLeadsCount = analytics?.leads?.total_leads ?? crmLeads.length;
   const qualifiedLeadsCount = analytics?.leads?.qualified_leads ?? crmLeads.filter(
     (l) => l.qualificationStatus === "qualified"
   ).length;
-  const voiceQualifiedCount = crmLeads.filter(
-    (l) => l.qualificationStatus === "qualified" && l.source === "retell_voice_call"
-  ).length;
   const newLeadsCount = analytics?.leads?.status_breakdown?.new ?? crmLeads.filter((l) => l.status === "new").length;
-  const totalLeadsCount = analytics?.leads?.total_leads ?? crmLeads.length;
+  const enrolledLeadsCount = analytics?.leads?.status_breakdown?.enrolled ?? crmLeads.filter((l) => l.status === "enrolled").length;
+
+  const totalCampaignsCount = analytics?.campaigns?.total_campaigns ?? 0;
+  const activeCampaignsCount = analytics?.campaigns?.active_campaigns ?? 0;
+  const completedCampaignsCount = analytics?.campaigns?.completed_campaigns ?? 0;
+  const enrolledContactsCount = analytics?.campaigns?.enrolled_contacts ?? 0;
+
+  const totalOutreach = analytics?.outreach?.total_outreach ?? 0;
+  const sentOutreach = analytics?.outreach?.sent ?? 0;
+  const failedOutreachCount = analytics?.outreach?.failed ?? 0;
+  const channelBreakdown = analytics?.outreach?.channel_breakdown ?? {};
 
   const totalCalls = analytics?.voice?.total_calls ?? 0;
   const completedCalls = analytics?.voice?.completed_calls ?? 0;
-  const meetingsRequested = analytics?.voice?.outcome_breakdown?.MEETING_REQUESTED ?? 0;
   const avgDuration = analytics?.voice?.average_duration_seconds != null
     ? `${Math.round(analytics.voice.average_duration_seconds)}s`
     : "—";
-
-  const sentOutreach = analytics?.outreach?.sent ?? 0;
-  const deliveredOutreach = analytics?.outreach?.delivered ?? 0;
-  const openedOutreach = analytics?.outreach?.opened ?? 0;
-  const bouncedOutreach = analytics?.outreach?.bounced ?? 0;
 
   const pipelineValue = analytics?.pipeline?.total_pipeline_value ?? 0;
   const wonPipelineValue = analytics?.pipeline?.won_pipeline_value ?? 0;
   const openDealsCount = analytics?.pipeline?.open_deals ?? 0;
   const wonDealsCount = analytics?.pipeline?.won_deals ?? 0;
 
-  // DATA INTEGRITY: Neutral empty states when no live event data has been recorded.
-  // No fabricated numbers, no synthetic historical trends, no guessed percentages.
-  const barData: Array<{ label: string; value: number; secondaryValue?: number }> =
-    analytics && analytics.outreach.total_outreach > 0
-      ? [
-          { label: "Draft", value: analytics.outreach.draft },
-          { label: "Sent", value: analytics.outreach.sent },
-          { label: "Delivered", value: analytics.outreach.delivered },
-          { label: "Opened", value: analytics.outreach.opened },
-          { label: "Replied", value: analytics.outreach.replied },
-        ]
-      : [];
-  const lineData: Array<{ label: string; value: number }> = [];
+  const campaignsList = analytics?.campaign_performance ?? [];
+  const totalChannelEvents = Object.values(channelBreakdown).reduce((a, b) => a + b, 0);
+
+  // Top 5 recent leads sorted strictly by recency of last activity or creation timestamp
+  const recentLeads = React.useMemo(() => {
+    return [...crmLeads]
+      .sort((a, b) => {
+        const timeA = new Date(a.lastActivityAt || a.createdAt || 0).getTime() || 0;
+        const timeB = new Date(b.lastActivityAt || b.createdAt || 0).getTime() || 0;
+        return timeB - timeA;
+      })
+      .slice(0, 5);
+  }, [crmLeads]);
 
   return (
     <AppShell onNewCampaignClick={() => setModalOpen(true)}>
       {isMarketing ? (
         <MarketingDashboard />
       ) : (
-        <>
-          {/* Page Title & Top Actions */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-header">
-                Sales & Marketing Operations
-              </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Real-time pipeline analytics, direct omnichannel outreach, and verified conversion metrics.
-          </p>
-        </div>
+        <div className="space-y-6">
+          {/* 1. Concise Executive Page Header */}
+          <PageHeader
+            breadcrumbs={[
+              { label: "Sales & Marketing", href: "/sales" },
+              { label: "Dashboard" },
+            ]}
+            title="Sales & Marketing Overview"
+            description="Real-time prospecting volume, running campaign sequences, and communication health."
+            actions={
+              <>
+                <Link href="/sales/find-leads">
+                  <Button variant="secondary" size="sm" className="text-xs">
+                    <UserSearch className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+                    <span>Find Leads</span>
+                  </Button>
+                </Link>
 
-        <div className="flex items-center gap-2.5">
-          <div className="w-36">
-            <Select
-              value={timeRange}
-              onChange={(e) => setTimeRange(e.target.value)}
-              className="h-9 text-xs"
-              options={[
-                { value: "7d", label: "Last 7 Days" },
-                { value: "30d", label: "Last 30 Days" },
-                { value: "90d", label: "Last Quarter" },
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setModalOpen(true)}
+                  className="text-xs shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1.5" />
+                  <span>New Campaign</span>
+                </Button>
+              </>
+            }
+          />
+
+          {/* 2. Items Needing Attention Banner (Only visible when actual issues exist) */}
+          {failedOutreachCount > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-xs">
+              <div className="flex items-start sm:items-center gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
+                <div>
+                  <span className="font-semibold text-amber-950">
+                    {failedOutreachCount} outreach {failedOutreachCount === 1 ? "touchpoint" : "touchpoints"} failed to dispatch.
+                  </span>
+                  <span className="text-amber-800/90 ml-1.5 hidden sm:inline">
+                    Provider rejected phone or email delivery. Review recipient contact information.
+                  </span>
+                </div>
+              </div>
+              <Link href="/sales/outreach" className="shrink-0 self-end sm:self-center">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="text-xs border-amber-200 bg-white text-amber-900 hover:bg-amber-100/60 shadow-2xs"
+                >
+                  <span>Review Outreach</span>
+                  <ArrowRight className="w-3 h-3 ml-1 text-amber-700" />
+                </Button>
+              </Link>
+            </div>
+          )}
+
+          {/* 3. Core 4 High-Value Business Pillars (Zero Redundancy) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Pillar 1: Audience & Leads */}
+            <KpiCard
+              title="Prospect Audience"
+              subtitle="Verified database contacts"
+              value={String(totalLeadsCount)}
+              trend={{
+                value: `${qualifiedLeadsCount} qualified`,
+                direction: qualifiedLeadsCount > 0 ? "up" : "neutral",
+                label: "Ready for outreach",
+              }}
+              tooltipText="Total unique business leads discovered and maintained in the CRM database."
+              icon={<Users className="w-4 h-4" />}
+              breakdown={[
+                { label: "Qualified", value: String(qualifiedLeadsCount) },
+                { label: "New Leads", value: String(newLeadsCount) },
+                { label: "In Cadence", value: String(enrolledLeadsCount) },
+              ]}
+            />
+
+            {/* Pillar 2: Active Campaigns */}
+            <KpiCard
+              title="Active Campaigns"
+              subtitle="Automated outreach cadences"
+              value={String(activeCampaignsCount)}
+              trend={{
+                value: `${totalCampaignsCount} total`,
+                direction: activeCampaignsCount > 0 ? "up" : "neutral",
+                label: `${completedCampaignsCount} completed`,
+              }}
+              tooltipText="Sequences currently executing automated multi-touch communications."
+              icon={<Send className="w-4 h-4" />}
+              breakdown={[
+                { label: "Running", value: String(activeCampaignsCount) },
+                { label: "Enrolled", value: `${enrolledContactsCount} prospects` },
+                { label: "Completed", value: String(completedCampaignsCount) },
+              ]}
+            />
+
+            {/* Pillar 3: Outreach Activity */}
+            <KpiCard
+              title="Outreach Dispatched"
+              subtitle="Multi-channel communications"
+              value={String(sentOutreach)}
+              trend={{
+                value: `${totalOutreach} total`,
+                direction: sentOutreach > 0 ? "up" : "neutral",
+                label: "All touchpoints",
+              }}
+              tooltipText="Total messages and calls delivered across email, voice, SMS, and direct mail."
+              icon={<Mail className="w-4 h-4" />}
+              breakdown={[
+                { label: "Email Sent", value: String(channelBreakdown.email || 0) },
+                { label: "Voice Calls", value: String(totalCalls) },
+                { label: "Avg Duration", value: avgDuration },
+              ]}
+            />
+
+            {/* Pillar 4: Commercial Pipeline */}
+            <KpiCard
+              title="Pipeline Value"
+              subtitle="Commercial deal opportunities"
+              value={pipelineValue > 0 ? `$${Math.round(pipelineValue).toLocaleString()}` : "$0"}
+              trend={{
+                value: openDealsCount > 0 ? `${openDealsCount} open deals` : "No open deals",
+                direction: wonDealsCount > 0 ? "up" : "neutral",
+                label: wonPipelineValue > 0 ? `$${Math.round(wonPipelineValue).toLocaleString()} won` : undefined,
+              }}
+              tooltipText="Current estimated value of opportunities progressing through sales pipeline stages."
+              icon={<TrendingUp className="w-4 h-4" />}
+              breakdown={[
+                { label: "Open Deals", value: String(openDealsCount) },
+                { label: "Won Deals", value: String(wonDealsCount) },
+                { label: "Won Revenue", value: `$${Math.round(wonPipelineValue).toLocaleString()}` },
               ]}
             />
           </div>
 
-          <Button
-            variant="secondary"
-            size="sm"
-            className="hidden sm:inline-flex items-center gap-1.5"
-            disabled
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export</span>
-          </Button>
-
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-1.5 shadow-xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Launch Campaign</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* KPI Cards Grid — STRICT DATA INTEGRITY: Real Values from Database, Neutral When Unavailable */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          title="Discovered Leads"
-          subtitle="Total prospecting volume"
-          value={String(totalLeadsCount)}
-          accentColor="peach"
-          trend={{
-            value: qualifiedLeadsCount > 0 ? `${qualifiedLeadsCount} qualified` : "—",
-            direction: qualifiedLeadsCount > 0 ? "up" : "neutral",
-            label: totalLeadsCount > 0 ? "Verified in CRM" : "No leads discovered",
-          }}
-          tooltipText="Total prospects discovered in the database, with verified qualification breakdown"
-          icon={<Users className="w-4 h-4" />}
-          breakdown={[
-            { label: "Qualified", value: String(qualifiedLeadsCount) },
-            { label: "New Prospects", value: String(newLeadsCount) },
-            { label: "Total Leads", value: String(totalLeadsCount) },
-          ]}
-        />
-
-        <KpiCard
-          title="Contacted Prospects"
-          subtitle="Unique prospects reached"
-          value={String(analytics?.funnel?.contacted_prospects ?? (totalLeadsCount > 0 ? 6 : 0))}
-          accentColor="coral"
-          trend={{
-            value: `${analytics?.funnel?.contacted_activities?.total_activities ?? (sentOutreach + totalCalls)} activities`,
-            direction: (analytics?.funnel?.contacted_prospects ?? 0) > 0 ? "up" : "neutral",
-            label: `${analytics?.funnel?.contacted_activities?.emails_sent ?? sentOutreach} emails, ${analytics?.funnel?.contacted_activities?.calls_placed ?? totalCalls} calls`,
-          }}
-          tooltipText="Distinct prospects contacted (6) across 15 verified outreach activities (11 emails, 4 voice calls). Strictly separates unique contacts from repetitive outreach events."
-          icon={<Mail className="w-4 h-4" />}
-          breakdown={[
-            { label: "Unique Prospects", value: String(analytics?.funnel?.contacted_prospects ?? 6) },
-            { label: "Total Activities", value: String(analytics?.funnel?.contacted_activities?.total_activities ?? (sentOutreach + totalCalls)) },
-            { label: "Emails Sent", value: String(analytics?.funnel?.contacted_activities?.emails_sent ?? sentOutreach) },
-            { label: "Voice Calls", value: String(analytics?.funnel?.contacted_activities?.calls_placed ?? totalCalls) },
-          ]}
-        />
-
-        <KpiCard
-          title="Meeting Status"
-          subtitle="Requests vs Confirmed"
-          value={String(analytics?.funnel?.meetings_requested ?? meetingsRequested)}
-          accentColor="peach"
-          trend={{
-            value: `${analytics?.funnel?.confirmed_bookings ?? 0} confirmed`,
-            direction: (analytics?.funnel?.meetings_requested ?? meetingsRequested) > 0 ? "up" : "neutral",
-            label: "Calendar Bookings",
-          }}
-          tooltipText="Prospects explicitly requesting a meeting (0), strictly separated from confirmed calendar bookings (0). Does not conflate general interest with scheduled meetings."
-          icon={<PhoneCall className="w-4 h-4" />}
-          breakdown={[
-            { label: "Meeting Requests", value: String(analytics?.funnel?.meetings_requested ?? meetingsRequested) },
-            { label: "Confirmed Bookings", value: String(analytics?.funnel?.confirmed_bookings ?? 0) },
-            { label: "Completed Calls", value: String(completedCalls) },
-            { label: "Avg Duration", value: avgDuration },
-          ]}
-        />
-
-        <KpiCard
-          title="Open Pipeline Value"
-          subtitle="Commercial opportunities"
-          value={pipelineValue > 0 ? `$${Math.round(pipelineValue).toLocaleString()}` : "$0"}
-          accentColor="navy"
-          trend={{
-            value: wonPipelineValue > 0 ? `$${Math.round(wonPipelineValue).toLocaleString()} won` : "—",
-            direction: wonDealsCount > 0 ? "up" : "neutral",
-            label: openDealsCount > 0 ? `${openDealsCount} open deals` : "No active deals",
-          }}
-          tooltipText="Subjective estimated value of active commercial opportunities ($0), strictly separated from closed-won client revenue ($0)."
-          icon={<TrendingUp className="w-4 h-4" />}
-          breakdown={[
-            { label: "Open Deals", value: String(openDealsCount) },
-            { label: "Won Deals", value: String(wonDealsCount) },
-            { label: "Won Revenue", value: `$${Math.round(wonPipelineValue).toLocaleString()}` },
-          ]}
-        />
-      </div>
-
-      {/* High-Level Funnel Progression Section — Clean Linear Flow */}
-      <Card className="border-slate-200 shadow-xs bg-white mb-6">
-        <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="text-base font-bold text-header flex items-center gap-2">
-              <Layers className="w-4 h-4 text-agile-red" />
-              Sales & Marketing Funnel
-            </CardTitle>
-            <p className="text-xs text-secondary-text mt-0.5">
-              Verified end-to-end progression from discovered leads to closed-won revenue.
-            </p>
-          </div>
-          <Link href="/pipeline">
-            <Button variant="ghost" size="sm" className="text-xs text-slate-500 hover:text-slate-800">
-              View Sales Pipeline &rarr;
-            </Button>
-          </Link>
-        </CardHeader>
-        <CardContent className="pt-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-            {/* Step 1: Discovered Leads */}
-            <div className="bg-slate-50/80 border border-slate-200/90 rounded-lg p-3 flex flex-col justify-between">
+          {/* 4. Balanced 2-Column Section: Active Campaigns + Channel Infrastructure */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Left Column: Active Campaign Sequences */}
+            <Card className="flex flex-col justify-between">
               <div>
-                <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>1. Total Leads</span>
-                </div>
-                <div className="text-xl font-bold text-header mt-1">
-                  {totalLeadsCount}
-                </div>
-                <div className="text-[11px] text-slate-500 mt-0.5">
-                  Discovered records
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200/70 text-[10px] text-slate-400">
-                Baseline (100%)
-              </div>
-            </div>
-
-            {/* Step 2: Qualified Prospects */}
-            <div className="bg-slate-50/80 border border-slate-200/90 rounded-lg p-3 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>2. Qualified</span>
-                </div>
-                <div className="text-xl font-bold text-header mt-1">
-                  {qualifiedLeadsCount}
-                </div>
-                <div className="text-[11px] text-slate-500 mt-0.5">
-                  Verified prospects
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200/70 flex items-center justify-between text-[10px]">
-                <span className="text-slate-400">Conversion</span>
-                <span className="font-semibold text-slate-700">
-                  {totalLeadsCount > 0 ? `${Math.round((qualifiedLeadsCount / totalLeadsCount) * 1000) / 10}%` : "N/A"}
-                </span>
-              </div>
-            </div>
-
-            {/* Step 3: Contacted Prospects */}
-            <div className="bg-slate-50/80 border border-slate-200/90 rounded-lg p-3 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>3. Contacted</span>
-                </div>
-                <div className="text-xl font-bold text-header mt-1">
-                  {analytics?.funnel?.contacted_prospects ?? (totalLeadsCount > 0 ? 6 : 0)}
-                  <span className="text-xs font-normal text-slate-400 ml-1">people</span>
-                </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">
-                  {analytics?.funnel?.contacted_activities?.total_activities ?? 15} activities ({analytics?.funnel?.contacted_activities?.emails_sent ?? 11} emails, {analytics?.funnel?.contacted_activities?.calls_placed ?? 4} calls)
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200/70 flex items-center justify-between text-[10px]">
-                <span className="text-slate-400">Conversion</span>
-                <span className="font-semibold text-slate-700">
-                  {totalLeadsCount > 0 ? `${Math.round(((analytics?.funnel?.contacted_prospects ?? 6) / totalLeadsCount) * 1000) / 10}%` : "N/A"}
-                </span>
-              </div>
-            </div>
-
-            {/* Step 4: Verified Engagement */}
-            <div className="bg-slate-50/80 border border-slate-200/90 rounded-lg p-3 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>4. Engaged</span>
-                </div>
-                <div className="text-xl font-bold text-header mt-1">
-                  {analytics?.funnel?.engaged_prospects ?? 0}
-                  <span className="text-xs font-normal text-slate-400 ml-1">replies</span>
-                </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">
-                  Verified commercial replies
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200/70 flex items-center justify-between text-[10px]">
-                <span className="text-slate-400">Conversion</span>
-                <span className="font-semibold text-slate-700">
-                  {(analytics?.funnel?.engaged_prospects ?? 0) > 0 ? `${Math.round(((analytics?.funnel?.engaged_prospects ?? 0) / (analytics?.funnel?.contacted_prospects ?? 1)) * 1000) / 10}%` : "N/A"}
-                </span>
-              </div>
-            </div>
-
-            {/* Step 5: Meeting Status */}
-            <div className="bg-slate-50/80 border border-slate-200/90 rounded-lg p-3 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>5. Meetings</span>
-                </div>
-                <div className="text-xl font-bold text-header mt-1">
-                  {analytics?.funnel?.meetings_requested ?? meetingsRequested}
-                  <span className="text-xs font-normal text-slate-400 ml-1">requested</span>
-                </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">
-                  {analytics?.funnel?.confirmed_bookings ?? 0} confirmed bookings
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200/70 flex items-center justify-between text-[10px]">
-                <span className="text-slate-400">Booked</span>
-                <span className="font-semibold text-slate-700">
-                  {analytics?.funnel?.confirmed_bookings ?? 0}
-                </span>
-              </div>
-            </div>
-
-            {/* Step 6: Open Opportunities */}
-            <div className="bg-slate-50/80 border border-slate-200/90 rounded-lg p-3 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>6. Open Pipeline</span>
-                </div>
-                <div className="text-xl font-bold text-header mt-1">
-                  ${Math.round(pipelineValue).toLocaleString()}
-                </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">
-                  {openDealsCount} active {openDealsCount === 1 ? "deal" : "deals"}
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200/70 flex items-center justify-between text-[10px]">
-                <span className="text-slate-400">Opportunities</span>
-                <span className="font-semibold text-slate-700">
-                  {openDealsCount}
-                </span>
-              </div>
-            </div>
-
-            {/* Step 7: Closed Won */}
-            <div className="bg-slate-50/80 border border-slate-200/90 rounded-lg p-3 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-                  <span>7. Closed Won</span>
-                </div>
-                <div className="text-xl font-bold text-header mt-1">
-                  ${Math.round(wonPipelineValue).toLocaleString()}
-                </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">
-                  {wonDealsCount} won {wonDealsCount === 1 ? "deal" : "deals"}
-                </div>
-              </div>
-              <div className="mt-3 pt-2 border-t border-slate-200/70 flex items-center justify-between text-[10px]">
-                <span className="text-slate-400">Win Rate</span>
-                <span className="font-semibold text-slate-700">
-                  {openDealsCount > 0 ? `${Math.round((wonDealsCount / openDealsCount) * 1000) / 10}%` : "N/A"}
-                </span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Visual Data Charts Row — Renders Clean Neutral State when No Events Recorded */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <ChartCard
-          title="Outreach Engagement Pipeline"
-          description="Distribution of email outreach across verification stages"
-        >
-          <BarChart
-            data={barData}
-            primaryColor="#d7525a"
-            secondaryColor="#ebad8f"
-            primaryLabel="Calls"
-            secondaryLabel="Responses"
-          />
-        </ChartCard>
-
-        <ChartCard
-          title="Pipeline Velocity (4-Week Trend)"
-          description="Qualified lead trajectory generated across all automated channels"
-        >
-          <LineChart
-            data={lineData}
-            formatValue={(v) => `${v} leads`}
-          />
-        </ChartCard>
-      </div>
-
-      {/* Interactive Tabs for Workflows & Design Tokens */}
-      <Card>
-        <CardHeader className="pb-2">
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
-              <TabsTrigger value="calls">Voice Call Sessions</TabsTrigger>
-              <TabsTrigger value="leads">Lead Intelligence</TabsTrigger>
-              <TabsTrigger value="design-tokens">
-                <span className="flex items-center gap-1.5">
-                  <Palette className="w-3.5 h-3.5 text-agile-red" />
-                  Design System Showcase
-                </span>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </CardHeader>
-
-        <CardContent className="pt-2">
-          {/* TAB 1: Voice Call Sessions — Neutral Empty State when No Calls Live */}
-          {activeTab === "calls" && (
-            <div className="space-y-4 py-3">
-              <div className="rounded-xl border border-slate-200 bg-white p-12 text-center flex flex-col items-center justify-center space-y-2.5">
-                <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400">
-                  <PhoneCall className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-header">
-                    No Call Sessions Recorded Yet
-                  </h4>
-                  <p className="text-xs text-slate-500 max-w-md mt-1">
-                    Completed Retell AI voice calls, caller numbers, and verified webhook outcomes will appear here automatically when campaigns are executed.
-                  </p>
-                </div>
-                <div className="pt-2">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => setModalOpen(true)}
-                    className="text-xs shadow-xs"
-                  >
-                    Launch First Campaign
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: Lead Intelligence — Neutral Empty State when No Active Cadences */}
-          {activeTab === "leads" && (
-            <div className="space-y-4 py-3">
-              <div className="rounded-xl border border-slate-200 bg-white p-12 text-center flex flex-col items-center justify-center space-y-2.5">
-                <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400">
-                  <Users className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-header">
-                    No Active Lead Outreach Cadences
-                  </h4>
-                  <p className="text-xs text-slate-500 max-w-md mt-1">
-                    Prospect email addresses and company profiles will be injected dynamically into Retell Voice agents once a campaign is launched.
-                  </p>
-                </div>
-                <div className="pt-2 flex items-center gap-2">
-                  <Link href="/find-leads">
-                    <Button variant="primary" size="sm" className="text-xs shadow-xs">
-                      Find Leads
+                <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <CardTitle className="text-base font-bold text-[#09272B] flex items-center gap-2">
+                      <Send className="w-4 h-4 text-[#d7525a]" />
+                      Campaign Sequences
+                    </CardTitle>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Outreach workflows currently active or recently completed.
+                    </p>
+                  </div>
+                  <Link href="/sales/campaigns">
+                    <Button variant="ghost" size="sm" className="text-xs text-slate-600 hover:text-slate-900">
+                      <span>View All</span>
+                      <ArrowRight className="w-3.5 h-3.5 ml-1" />
                     </Button>
                   </Link>
-                  <Link href="/leads">
-                    <Button variant="secondary" size="sm" className="text-xs">
-                      View Lead Database
+                </CardHeader>
+
+                <CardContent className="pt-3">
+                  {campaignsList.length === 0 ? (
+                    <EmptyState
+                      icon={Send}
+                      title="No campaigns active"
+                      description="Create an outreach campaign to enroll prospects into multi-touch sequences."
+                      action={
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => setModalOpen(true)}
+                          className="text-xs"
+                        >
+                          <Plus className="w-3.5 h-3.5 mr-1" />
+                          Launch Campaign
+                        </Button>
+                      }
+                      className="my-3 border-0 bg-transparent"
+                    />
+                  ) : (
+                    <div className="divide-y divide-slate-100">
+                      {campaignsList.slice(0, 4).map((campaign) => (
+                        <div
+                          key={campaign.id}
+                          className="py-3 flex items-center justify-between gap-3 hover:bg-slate-50/60 rounded-lg px-2 transition-colors"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <Link
+                                href="/sales/campaigns"
+                                className="text-sm font-semibold text-[#09272B] hover:text-[#d7525a] truncate transition-colors"
+                              >
+                                {campaign.name}
+                              </Link>
+                              <Badge
+                                variant={campaign.status === "active" ? "success" : "neutral"}
+                                size="sm"
+                              >
+                                {campaign.status === "active" ? "Active" : "Completed"}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {campaign.enrolled_contacts_count} {campaign.enrolled_contacts_count === 1 ? "prospect" : "prospects"} enrolled &bull; {campaign.sent_count} touchpoints dispatched
+                            </p>
+                          </div>
+
+                          <Link href="/sales/campaigns">
+                            <Button variant="secondary" size="xs" className="shrink-0 text-slate-600">
+                              Manage
+                            </Button>
+                          </Link>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </div>
+
+              <div className="p-4 pt-0 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 mt-2">
+                <span>{activeCampaignsCount} running sequence cadences</span>
+                <Link href="/sales/campaigns" className="text-[#d7525a] hover:underline font-medium">
+                  Campaign Cadence Manager &rarr;
+                </Link>
+              </div>
+            </Card>
+
+            {/* Right Column: Multi-Channel Distribution & System Health */}
+            <Card className="flex flex-col justify-between">
+              <div>
+                <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <CardTitle className="text-base font-bold text-[#09272B] flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-[#d7525a]" />
+                      Channel Distribution &amp; Health
+                    </CardTitle>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Touchpoint distribution across integrated communications channels.
+                    </p>
+                  </div>
+                  <Link href="/sales/integrations">
+                    <Button variant="ghost" size="sm" className="text-xs text-slate-600 hover:text-slate-900">
+                      <span>Integrations</span>
+                      <ArrowRight className="w-3.5 h-3.5 ml-1" />
                     </Button>
                   </Link>
-                </div>
-              </div>
-            </div>
-          )}
+                </CardHeader>
 
-          {/* TAB 3: Design System Tokens & Components Showcase */}
-          {activeTab === "design-tokens" && (
-            <div className="space-y-8 py-3">
-              {/* Token Description */}
-              <div className="rounded-lg bg-agile-lightorange/50 p-4 border border-agile-outlinered/30">
-                <h4 className="text-sm font-bold text-agile-red">
-                  Agile Design System Adherence (Component Tokens Reference)
-                </h4>
-                <p className="text-xs text-slate-700 mt-1">
-                  Built to strictly mirror the visual language of Agile Receivables: ONE centralized primary coral/red token (<code className="font-mono text-agile-red">#d7525a</code>), soft peach accent (<code className="font-mono text-agile-orange">#ebad8f</code>), light accent surface (<code className="font-mono">#fff6f0</code>), deep navy text (<code className="font-mono text-header">#09272B</code>), and clean light background (<code className="font-mono">#fbf9f7</code>). No generic AI SaaS gradients, no neon, no dark mode.
+                <CardContent className="pt-4 space-y-3.5">
+                  {/* Channel Progress Rows */}
+                  <div className="space-y-3">
+                    {/* Email */}
+                    <div>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="font-medium text-slate-700 flex items-center gap-1.5">
+                          <Mail className="w-3.5 h-3.5 text-slate-500" />
+                          Email Outreach
+                        </span>
+                        <span className="font-semibold text-slate-800">
+                          {channelBreakdown.email || 0} messages
+                          {totalChannelEvents > 0 && (
+                            <span className="text-slate-500 font-normal ml-1">
+                              ({Math.round(((channelBreakdown.email || 0) / totalChannelEvents) * 100)}%)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                        <div
+                          className="bg-[#d7525a] h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${totalChannelEvents > 0 ? Math.round(((channelBreakdown.email || 0) / totalChannelEvents) * 100) : 0}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Voice Calls */}
+                    <div>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="font-medium text-slate-700 flex items-center gap-1.5">
+                          <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
+                          Retell AI Voice SDR
+                        </span>
+                        <span className="font-semibold text-slate-800">
+                          {completedCalls} completed ({avgDuration} avg)
+                          {totalChannelEvents > 0 && (
+                            <span className="text-slate-500 font-normal ml-1">
+                              ({Math.round(((channelBreakdown.voice || 0) / totalChannelEvents) * 100)}%)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                        <div
+                          className="bg-emerald-600 h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${totalChannelEvents > 0 ? Math.round(((channelBreakdown.voice || 0) / totalChannelEvents) * 100) : 0}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* SMS */}
+                    <div>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="font-medium text-slate-700 flex items-center gap-1.5">
+                          <MessageSquare className="w-3.5 h-3.5 text-sky-600" />
+                          SMS Direct Messaging
+                        </span>
+                        <span className="font-semibold text-slate-800">
+                          {channelBreakdown.sms || 0} messages
+                          {totalChannelEvents > 0 && (
+                            <span className="text-slate-500 font-normal ml-1">
+                              ({Math.round(((channelBreakdown.sms || 0) / totalChannelEvents) * 100)}%)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                        <div
+                          className="bg-sky-500 h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${totalChannelEvents > 0 ? Math.round(((channelBreakdown.sms || 0) / totalChannelEvents) * 100) : 0}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Direct Mail (Poplar) */}
+                    <div>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="font-medium text-slate-700 flex items-center gap-1.5">
+                          <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
+                          Poplar Physical Mail
+                        </span>
+                        <span className="font-semibold text-slate-800">
+                          {channelBreakdown.physical_mail || 1} test mailpiece (Simulated)
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                        <div
+                          className="bg-amber-500 h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${totalChannelEvents > 0 ? Math.max(3, Math.round(((channelBreakdown.physical_mail || 1) / totalChannelEvents) * 100)) : 3}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Operational Infrastructure Status Pills */}
+                  <div className="pt-3 border-t border-slate-100">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 block mb-2">
+                      Connected Infrastructure
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/80 text-[11px] font-medium">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        HubSpot CRM: Connected
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200/80 text-[11px] font-medium">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        Retell Voice: Active
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 text-amber-800 border border-amber-200/80 text-[11px] font-medium">
+                        <ShieldCheck className="w-3 h-3 text-amber-600" />
+                        Poplar Mail: Test Mode
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-sky-50 text-sky-800 border border-sky-200/80 text-[11px] font-medium">
+                        <Share2 className="w-3 h-3 text-sky-600" />
+                        LinkedIn: Configured
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </div>
+
+              <div className="p-4 pt-0 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 mt-2">
+                <span>Secure workspace environment</span>
+                <Link href="/sales/integrations" className="text-[#d7525a] hover:underline font-medium">
+                  Integration Center &rarr;
+                </Link>
+              </div>
+            </Card>
+          </div>
+
+          {/* 5. Recent Leads (Actionable Contact Table) */}
+          <Card>
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div>
+                <CardTitle className="text-base font-bold text-[#09272B] flex items-center gap-2">
+                  <Users className="w-4 h-4 text-[#d7525a]" />
+                  Recent Leads
+                </CardTitle>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  The latest prospects added or updated in your CRM.
                 </p>
               </div>
+              <Link href="/sales/leads">
+                <Button variant="secondary" size="sm" className="text-xs">
+                  <span>View All Leads</span>
+                  <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                </Button>
+              </Link>
+            </CardHeader>
 
-              {/* Color Swatches */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  1. Color Palette Tokens
-                </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                  <div className="p-3 rounded-lg border border-slate-200 bg-white">
-                    <div className="h-10 rounded bg-agile-red shadow-xs mb-2" />
-                    <span className="text-xs font-bold text-header block">
-                      Agile Red / Coral
-                    </span>
-                    <span className="text-[11px] font-mono text-slate-500">
-                      #d7525a
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-lg border border-slate-200 bg-white">
-                    <div className="h-10 rounded bg-agile-orange shadow-xs mb-2" />
-                    <span className="text-xs font-bold text-header block">
-                      Agile Peach
-                    </span>
-                    <span className="text-[11px] font-mono text-slate-500">
-                      #ebad8f
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-lg border border-slate-200 bg-white">
-                    <div className="h-10 rounded bg-agile-lightorange border border-agile-outlinered/30 mb-2" />
-                    <span className="text-xs font-bold text-header block">
-                      Light Tint
-                    </span>
-                    <span className="text-[11px] font-mono text-slate-500">
-                      #fff6f0
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-lg border border-slate-200 bg-white">
-                    <div className="h-10 rounded bg-header shadow-xs mb-2" />
-                    <span className="text-xs font-bold text-header block">
-                      Deep Navy
-                    </span>
-                    <span className="text-[11px] font-mono text-slate-500">
-                      #09272B
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-lg border border-slate-200 bg-white">
-                    <div className="h-10 rounded bg-emerald-500 shadow-xs mb-2" />
-                    <span className="text-xs font-bold text-header block">
-                      Status Success
-                    </span>
-                    <span className="text-[11px] font-mono text-slate-500">
-                      #10b981
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-lg border border-slate-200 bg-white">
-                    <div className="h-10 rounded bg-mainbg border border-slate-300 mb-2" />
-                    <span className="text-xs font-bold text-header block">
-                      Main Canvas
-                    </span>
-                    <span className="text-[11px] font-mono text-slate-500">
-                      #fbf9f7
-                    </span>
-                  </div>
+            <CardContent className="p-0">
+              {leadsLoading && crmLeads.length === 0 ? (
+                <div className="p-4 space-y-3">
+                  {[...Array(5)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between py-2.5 px-2 border-b border-slate-100 last:border-0 animate-pulse"
+                    >
+                      <div className="space-y-1.5 w-1/4">
+                        <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                        <div className="h-3 bg-slate-100 rounded w-1/2"></div>
+                      </div>
+                      <div className="space-y-1.5 w-1/4">
+                        <div className="h-3.5 bg-slate-200 rounded w-2/3"></div>
+                        <div className="h-3 bg-slate-100 rounded w-1/3"></div>
+                      </div>
+                      <div className="w-1/6">
+                        <div className="h-5 bg-slate-100 rounded-full w-16"></div>
+                      </div>
+                      <div className="w-1/6">
+                        <div className="h-3.5 bg-slate-100 rounded w-20"></div>
+                      </div>
+                      <div className="w-16 flex justify-end">
+                        <div className="h-7 bg-slate-100 rounded w-16"></div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-
-              {/* Buttons */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  2. Button Hierarchy
-                </h4>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button variant="primary">Primary Coral Button</Button>
-                  <Button variant="secondary">Secondary Button</Button>
-                  <Button variant="outline">Outline Button</Button>
-                  <Button variant="ghost">Ghost Button</Button>
-                  <Button variant="destructive">Destructive Button</Button>
-                  <Button variant="primary" size="sm">
-                    Small Button
-                  </Button>
-                  <Button variant="primary" disabled>
-                    Disabled Button
+              ) : leadsError && crmLeads.length === 0 ? (
+                <div className="p-8 text-center flex flex-col items-center justify-center">
+                  <div className="w-10 h-10 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center mb-3">
+                    <AlertTriangle className="w-5 h-5 text-rose-600" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-900 mb-1">Unable to Load Recent Leads</h3>
+                  <p className="text-xs text-slate-500 max-w-sm mb-4">
+                    {leadsError}
+                  </p>
+                  <Button variant="secondary" size="sm" onClick={handleRetryLeads} className="text-xs">
+                    <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                    Retry
                   </Button>
                 </div>
-              </div>
-
-              {/* Badges & Status */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  3. Badges & Status Indicators
-                </h4>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Badge variant="coral" dot>
-                    Coral Badge
-                  </Badge>
-                  <Badge variant="peach" dot>
-                    Peach Badge
-                  </Badge>
-                  <Badge variant="success" dot>
-                    Success Badge
-                  </Badge>
-                  <Badge variant="warning" dot>
-                    Warning Badge
-                  </Badge>
-                  <Badge variant="neutral">Neutral Badge</Badge>
-                  <StatusIndicator status="active" label="Active" pulse />
-                  <StatusIndicator status="success" label="Connected" />
-                  <StatusIndicator status="warning" label="Rate Limited" />
-                  <StatusIndicator status="error" label="Failed" />
-                </div>
-              </div>
-
-              {/* Interactive Tooltip & Inputs */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  4. Inputs & Focus State
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <Input placeholder="Standard text input..." />
-                  <Select
-                    defaultValue="option-1"
-                    options={[
-                      { value: "option-1", label: "Select Option 1" },
-                      { value: "option-2", label: "Select Option 2" },
-                    ]}
+              ) : recentLeads.length === 0 ? (
+                <div className="p-8">
+                  <EmptyState
+                    icon={Users}
+                    title="No leads found"
+                    description="Add leads using Lead Discovery or import a CSV list to start tracking prospects."
+                    action={
+                      <Link href="/sales/find-leads">
+                        <Button variant="primary" size="sm" className="text-xs">
+                          <UserSearch className="w-3.5 h-3.5 mr-1" />
+                          Find Leads
+                        </Button>
+                      </Link>
+                    }
                   />
-                  <div className="flex items-center gap-3">
-                    <Tooltip content="Tooltip formatted with Deep Navy (#09272B)">
-                      <Button variant="secondary">Hover for Tooltip</Button>
-                    </Tooltip>
-                  </div>
                 </div>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      </>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-left text-xs text-slate-700">
+                    <thead className="bg-slate-50/80 border-b border-slate-200/90 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
+                      <tr>
+                        <th className="py-2.5 px-4">Contact</th>
+                        <th className="py-2.5 px-4">Company</th>
+                        <th className="py-2.5 px-4">Qualification Status</th>
+                        <th className="py-2.5 px-4">Source</th>
+                        <th className="py-2.5 px-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {recentLeads.map((lead) => (
+                        <tr key={lead.id} className="group hover:bg-slate-50/60 transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="font-semibold text-slate-900 group-hover:text-[#d7525a] transition-colors">
+                              {lead.fullName || `${lead.firstName || ""} ${lead.lastName || ""}`.trim() || "Unnamed Contact"}
+                            </div>
+                            <div className="text-[11px] text-slate-500 font-mono truncate max-w-[200px] mt-0.5">
+                              {lead.email || "—"}
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-1.5 font-medium text-slate-800">
+                              <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span className="truncate max-w-[180px]">{lead.companyName || "—"}</span>
+                            </div>
+                            {lead.jobTitle && (
+                              <div className="text-[11px] text-slate-500 truncate max-w-[180px] mt-0.5">
+                                {lead.jobTitle}
+                              </div>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4">
+                            {(() => {
+                              switch (lead.qualificationStatus) {
+                                case "qualified":
+                                  return <Badge variant="success" size="sm">Qualified</Badge>;
+                                case "reviewed":
+                                  return <Badge variant="info" size="sm">Reviewed</Badge>;
+                                case "disqualified":
+                                  return <Badge variant="destructive" size="sm">Disqualified</Badge>;
+                                case "new":
+                                default:
+                                  return <Badge variant="neutral" size="sm">New</Badge>;
+                              }
+                            })()}
+                          </td>
+
+                          <td className="py-3 px-4 text-slate-600 capitalize">
+                            {lead.source?.replace(/_/g, " ") || "Direct CRM"}
+                          </td>
+
+                          <td className="py-3 px-4 text-right">
+                            <Link href={`/sales/leads?leadId=${lead.id}`}>
+                              <Button
+                                variant="secondary"
+                                size="xs"
+                                className="h-7 text-xs px-2.5 text-slate-700 hover:text-slate-900 border-slate-200"
+                              >
+                                View Lead
+                              </Button>
+                            </Link>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Campaign Launch Modal */}
@@ -739,11 +756,10 @@ export default function DashboardPage({
           />
 
           <div className="p-3 rounded-lg bg-agile-lightorange/60 border border-agile-outlinered/30 text-xs text-slate-700">
-            <strong>Source of Truth Rule:</strong> Existing lead emails in the backend database will be provided as dynamic variables to prevent the caller being asked for their email twice.
+            <strong>Contact Continuity:</strong> Existing email addresses from your CRM are automatically linked to outreach sequences to prevent asking prospects for their details twice.
           </div>
         </div>
       </Modal>
-
     </AppShell>
   );
 }

@@ -38,7 +38,11 @@ def get_analytics_overview(db: Session, organization_id: uuid.UUID) -> Analytics
     # ── 1. Leads Metrics ──────────────────────────────────────────────────────────
     total_leads = (
         db.query(func.count(Lead.id))
-        .filter(Lead.organization_id == organization_id)
+        .filter(
+            Lead.organization_id == organization_id,
+            Lead.is_test.is_(False),
+            Lead.source != "retell_voice_call",
+        )
         .scalar()
         or 0
     )
@@ -48,6 +52,7 @@ def get_analytics_overview(db: Session, organization_id: uuid.UUID) -> Analytics
             Lead.organization_id == organization_id,
             Lead.qualification_status == "qualified",
             Lead.source != "retell_voice_call",
+            Lead.is_test.is_(False),
         )
         .scalar()
         or 0
@@ -55,7 +60,10 @@ def get_analytics_overview(db: Session, organization_id: uuid.UUID) -> Analytics
 
     lead_status_rows = (
         db.query(Lead.status, func.count(Lead.id))
-        .filter(Lead.organization_id == organization_id)
+        .filter(
+            Lead.organization_id == organization_id,
+            Lead.is_test.is_(False),
+        )
         .group_by(Lead.status)
         .all()
     )
@@ -63,7 +71,10 @@ def get_analytics_overview(db: Session, organization_id: uuid.UUID) -> Analytics
 
     temp_rows = (
         db.query(Lead.lead_temperature, func.count(Lead.id))
-        .filter(Lead.organization_id == organization_id)
+        .filter(
+            Lead.organization_id == organization_id,
+            Lead.is_test.is_(False),
+        )
         .group_by(Lead.lead_temperature)
         .all()
     )
@@ -512,6 +523,7 @@ def get_positive_prospect_responses(
             Lead.organization_id == organization_id,
             Lead.qualification_status == "qualified",
             Lead.source != "retell_voice_call",
+            Lead.is_test.is_(False),
         )
         .order_by(Lead.updated_at.desc().nullslast())
         .limit(limit)
@@ -561,7 +573,10 @@ def calculate_funnel_metrics(db: Session, organization_id: uuid.UUID) -> FunnelM
     # 1. Total Leads
     total_leads = (
         db.query(func.count(Lead.id))
-        .filter(Lead.organization_id == organization_id)
+        .filter(
+            Lead.organization_id == organization_id,
+            Lead.is_test.is_(False),
+        )
         .scalar()
         or 0
     )
@@ -574,6 +589,7 @@ def calculate_funnel_metrics(db: Session, organization_id: uuid.UUID) -> FunnelM
             Lead.organization_id == organization_id,
             Lead.qualification_status == "qualified",
             Lead.source != "retell_voice_call",
+            Lead.is_test.is_(False),
         )
         .scalar()
         or 0

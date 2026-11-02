@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.normalization import normalize_domain, normalize_email
+from app.core.test_detection import classify_is_test
 from app.models.crm import Company, Contact
 from app.models.icp import IdealCustomerProfile
 from app.models.lead import Lead
@@ -135,6 +136,15 @@ def generate_leads(
 
         score, temp, reason = calculate_lead_score(gen, icp)
 
+        lead_is_test = classify_is_test(
+            explicit_is_test=None,
+            email=norm_email or gen.email,
+            first_name=gen.first_name,
+            last_name=gen.last_name,
+            company_name=gen.company_name,
+            source=None,
+        )
+
         new_lead = Lead(
             organization_id=current_org.id,
             icp_id=icp.id,
@@ -158,6 +168,7 @@ def generate_leads(
             lead_score=score,
             qualification_reason=reason,
             status="new",
+            is_test=lead_is_test,
         )
         db.add(new_lead)
         created_leads.append(new_lead)
@@ -194,8 +205,9 @@ def list_leads(
     """List and filter leads with strict tenant isolation."""
     query = select(Lead).where(Lead.organization_id == current_org.id)
 
-    if exclude_test and not search:
+    if exclude_test:
         query = query.where(
+            Lead.is_test.is_(False),
             Lead.source != "retell_voice_call",
             or_(
                 Lead.email.is_(None),
@@ -283,6 +295,16 @@ def create_lead(
         parsed_first = raw_first or "Unknown"
         parsed_last = raw_last or ""
 
+    # Determine test classification via centralized helper
+    is_test_flag = classify_is_test(
+        explicit_is_test=getattr(data, "is_test", None),
+        email=norm_email,
+        first_name=parsed_first,
+        last_name=parsed_last,
+        company_name=data.company_name,
+        source=data.source,
+    )
+
     # Check whether an existing CRM contact represents the same person; create or associate
     linked_contact_id = None
     linked_company_id = None
@@ -333,6 +355,7 @@ def create_lead(
             phone=data.phone.strip() if data.phone else None,
             job_title=data.job_title.strip() if data.job_title else None,
             lead_status="new",
+            is_test=is_test_flag,
         )
         if hasattr(new_contact, "linkedin_profile_url") and data.linkedin_profile_url:
             new_contact.linkedin_profile_url = data.linkedin_profile_url
@@ -375,6 +398,7 @@ def create_lead(
         source=data.source or "manual",
         qualification_status=data.qualification_status or "new",
         status=data.status or "new",
+        is_test=is_test_flag,
     )
     if hasattr(lead, "linkedin_profile_url") and data.linkedin_profile_url:
         lead.linkedin_profile_url = data.linkedin_profile_url
@@ -602,6 +626,7 @@ def convert_lead_to_crm(
                 "phone": lead.phone,
                 "job_title": lead.job_title,
                 "lead_status": "qualified" if lead.qualification_status == "qualified" else "new",
+                "is_test": bool(getattr(lead, "is_test", False)),
             }
             if hasattr(Contact, "address_line_1") and hasattr(lead, "address_line_1"):
                 contact_kwargs["address_line_1"] = getattr(lead, "address_line_1", None)
@@ -710,6 +735,16 @@ def import_leads(
                 linked_contact_id = existing_contact.id
                 linked_company_id = existing_contact.company_id
 
+        # Determine test classification via centralized helper
+        row_is_test = classify_is_test(
+            explicit_is_test=getattr(row, "is_test", None),
+            email=norm_email,
+            first_name=first_name,
+            last_name=last_name,
+            company_name=company_name,
+            source="csv_import",
+        )
+
         lead = Lead(
             id=uuid.uuid4(),
             organization_id=current_org.id,
@@ -734,6 +769,7 @@ def import_leads(
             qualification_status="new",
             lead_temperature="cold",
             lead_score=0,
+            is_test=row_is_test,
         )
         if hasattr(lead, "linkedin_profile_url") and getattr(row, "linkedin_profile_url", None):
             lead.linkedin_profile_url = row.linkedin_profile_url.strip() or None
@@ -815,6 +851,7 @@ def update_lead(
             phone=lead.phone,
             job_title=lead.job_title,
             lead_status="new",
+            is_test=bool(getattr(lead, "is_test", False)),
         )
         if hasattr(contact, "linkedin_profile_url") and getattr(lead, "linkedin_profile_url", None):
             contact.linkedin_profile_url = lead.linkedin_profile_url
@@ -840,6 +877,8 @@ def update_lead(
                 contact.job_title = update_dict["job_title"]
             if "email" in update_dict:
                 contact.email = update_dict["email"]
+            if "is_test" in update_dict:
+                contact.is_test = lead.is_test
             if lead.company_id and not contact.company_id:
                 contact.company_id = lead.company_id
 

@@ -261,6 +261,11 @@ class Settings(BaseSettings):
     SCHEDULER_AUTO_DISPATCH: bool = Field(default=False)
     SCHEDULER_MAX_RETRIES: int = Field(default=3)
 
+    @property
+    def is_scheduler_active(self) -> bool:
+        """Check if campaign scheduler is enabled in active configuration."""
+        return bool(self.SCHEDULER_ENABLED)
+
     # AWS Bedrock (AI Email Generation)
     # Uses Anthropic Claude Sonnet 4.5 via cross-region inference profile (matching Agile Receivables)
     BEDROCK_REGION: str = "us-east-2"

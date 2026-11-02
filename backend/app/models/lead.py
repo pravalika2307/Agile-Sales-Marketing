@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -252,6 +253,22 @@ class Lead(Base):
             if lid not in _lead_unmigrated_profile_store:
                 _lead_unmigrated_profile_store[lid] = {}
             _lead_unmigrated_profile_store[lid]["linkedin_profile_url"] = val
+
+    if _check_column_exists("leads", "is_test"):
+        is_test: Mapped[bool] = mapped_column(
+            Boolean,
+            default=False,
+            nullable=False,
+            index=True,
+        )
+    else:
+        @property
+        def is_test(self) -> bool:
+            return getattr(self, "_is_test_val", False)
+
+        @is_test.setter
+        def is_test(self, val: bool):
+            self._is_test_val = bool(val)
 
     # Qualification & Scoring
     qualification_status: Mapped[str] = mapped_column(

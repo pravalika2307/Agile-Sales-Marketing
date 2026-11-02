@@ -98,3 +98,16 @@ class SchedulerTickResponse(BaseModel):
     error_count: int
     details: List[dict] = Field(default_factory=list)
 
+
+class SchedulerStatusResponse(BaseModel):
+    """Runtime status and configuration of the campaign execution scheduler."""
+    model_config = ConfigDict(from_attributes=True)
+
+    enabled: bool = Field(..., description="Whether the background scheduler is enabled")
+    auto_dispatch: bool = Field(..., description="Whether scheduled messages are automatically dispatched")
+    interval_seconds: int = Field(..., description="Evaluation interval in seconds")
+    batch_size: int = Field(..., description="Maximum messages processed per tick")
+    database_dialect: str = Field(..., description="Database engine dialect (e.g. postgresql, sqlite)")
+    status: str = Field(..., description="High-level status ('active' or 'disabled')")
+
+

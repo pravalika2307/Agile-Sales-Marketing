@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.normalization import normalize_email
+from app.core.test_detection import classify_is_test
 from app.models.call_record import CallRecord
 from app.models.campaign import CampaignContact
 from app.models.crm import Contact
@@ -1012,6 +1013,15 @@ class VoiceFollowUpService:
                 first_name = parts[0]
                 last_name = parts[1] if len(parts) > 1 else ""
 
+            is_test_record = classify_is_test(
+                explicit_is_test=None,
+                email=norm_email,
+                first_name=first_name,
+                last_name=last_name,
+                company_name=data.company_name,
+                source="retell_voice_call",
+            )
+
             contact = Contact(
                 organization_id=org_id,
                 email=norm_email,
@@ -1020,6 +1030,7 @@ class VoiceFollowUpService:
                 phone=data.phone_number,
                 job_title=data.job_title,
                 lead_status="qualified" if data.call_outcome == OUTCOME_QUALIFIED else "contacted",
+                is_test=is_test_record,
             )
             self.db.add(contact)
             self.db.flush()
@@ -1055,6 +1066,15 @@ class VoiceFollowUpService:
                 first_name = parts[0]
                 last_name = parts[1] if len(parts) > 1 else None
 
+            is_test_lead = classify_is_test(
+                explicit_is_test=None,
+                email=norm_email,
+                first_name=first_name,
+                last_name=last_name,
+                company_name=data.company_name,
+                source="retell_voice_call",
+            )
+
             lead = Lead(
                 organization_id=org_id,
                 company_name=data.company_name,
@@ -1068,6 +1088,7 @@ class VoiceFollowUpService:
                 lead_temperature="hot" if data.meeting_requested else "warm",
                 contact_id=contact.id if contact else None,
                 company_id=contact.company_id if (contact and contact.company_id) else None,
+                is_test=is_test_lead,
             )
             self.db.add(lead)
             self.db.flush()

@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
+from app.core.test_detection import classify_is_test
 from app.models.crm import Company, Contact, Deal, Pipeline, PipelineStage
 from app.models.hubspot_sync import HubSpotSyncRun
 from app.models.lead import Lead
@@ -117,8 +118,9 @@ class HubSpotSyncSummary(BaseModel):
 class HubSpotSyncEngine:
     """Production HubSpot read-only synchronization engine."""
 
-    def __init__(self, client: Optional[HubSpotClient] = None) -> None:
+    def __init__(self, client: Optional[HubSpotClient] = None, is_test: bool = False) -> None:
         self.client = client or HubSpotClient()
+        self.is_test = is_test
 
     async def get_portal_id(self) -> Optional[str]:
         """Fetch portal ID from HubSpot account info without modifying data."""
@@ -213,6 +215,16 @@ class HubSpotSyncEngine:
                     )
                     resolved_company_domain = resolved_company.domain if resolved_company else None
 
+                    # Determine test classification via centralized helper
+                    is_test_contact = classify_is_test(
+                        explicit_is_test=True if self.is_test else None,
+                        email=raw_email,
+                        first_name=first_name,
+                        last_name=last_name,
+                        company_name=resolved_company_name,
+                        source="hubspot",
+                    )
+
                     # 1. Upsert into CRM Contact table
                     existing_contact = db.query(Contact).filter(
                         Contact.organization_id == organization_id,
@@ -223,6 +235,8 @@ class HubSpotSyncEngine:
                         existing_contact.hubspot_id = hs_id
                         existing_contact.first_name = first_name
                         existing_contact.last_name = last_name
+                        if is_test_contact:
+                            existing_contact.is_test = True
                         if linked_company_id:
                             existing_contact.company_id = linked_company_id
                         if phone and not existing_contact.phone:
@@ -242,6 +256,7 @@ class HubSpotSyncEngine:
                             phone=phone,
                             job_title=job_title,
                             lead_status=lead_status,
+                            is_test=is_test_contact,
                         )
                         db.add(new_contact)
                         db.flush()  # populate new_contact.id
@@ -256,6 +271,8 @@ class HubSpotSyncEngine:
 
                     if existing_lead:
                         # Safety: If existing lead was from voice call or other channel, preserve its source!
+                        if is_test_contact:
+                            existing_lead.is_test = True
                         if existing_lead.source == "hubspot" or not existing_lead.source_external_id:
                             existing_lead.source_external_id = hs_id
                             existing_lead.contact_id = contact_id
@@ -280,6 +297,7 @@ class HubSpotSyncEngine:
                             job_title=job_title,
                             company_name=resolved_company_name,
                             status="new",
+                            is_test=is_test_contact,
                             # Clean neutral state for un-evaluated leads per data-integrity rules
                             lead_score=None,
                             lead_temperature=None,

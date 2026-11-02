@@ -37,6 +37,7 @@ class LeadCreate(BaseModel):
     source: Optional[str] = Field("manual", max_length=100)
     qualification_status: Optional[QualificationStatusType] = None
     status: Optional[LeadStatusType] = None
+    is_test: Optional[bool] = Field(False, description="Flag indicating whether this is a test/demo record")
 
     @field_validator("linkedin_profile_url")
     @classmethod
@@ -64,6 +65,7 @@ class LeadUpdate(BaseModel):
     lead_temperature: Optional[LeadTemperatureType] = None
     qualification_status: Optional[QualificationStatusType] = None
     status: Optional[LeadStatusType] = None
+    is_test: Optional[bool] = None
 
     @field_validator("linkedin_profile_url")
     @classmethod
@@ -119,6 +121,7 @@ class LeadResponse(BaseModel):
 
     # Status & Timestamps
     status: str
+    is_test: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -190,6 +193,7 @@ class LeadImportRow(BaseModel):
     address_line_2: Optional[str] = Field(None, max_length=255)
     country: Optional[str] = Field(None, max_length=100)
     linkedin_profile_url: Optional[str] = Field(None, max_length=500, description="Optional LinkedIn profile URL")
+    is_test: Optional[bool] = Field(None, description="Optional explicit test flag for CSV rows")
 
     @field_validator("linkedin_profile_url")
     @classmethod

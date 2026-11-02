@@ -48,7 +48,7 @@ export default function FindLeadsPage() {
   // Prospects State (Strict Data Integrity: No fabricated leads)
   const [prospectsList, setProspectsList] = React.useState<LeadItem[]>([]);
   const [searchMessage, setSearchMessage] = React.useState<string | null>(
-    "No external B2B lead discovery provider is currently configured (e.g. Apollo, ZoomInfo). In production integrity mode, synthetic leads are never fabricated."
+    "No external lead discovery provider is currently connected. You can manage and import leads directly in your CRM."
   );
   const [searchError, setSearchError] = React.useState<string | null>(null);
 
@@ -521,7 +521,7 @@ export default function FindLeadsPage() {
                 No external lead provider connected
               </h3>
               <p className="text-xs text-slate-500 mt-1 max-w-md leading-relaxed">
-                Agile Sales & Marketing is running in production data-integrity mode. No live B2B discovery provider is configured (e.g. Apollo, ZoomInfo), and synthetic records are never fabricated. You can manage genuine leads directly in the CRM.
+                Connect an external prospecting provider or import customer lists via CSV to start populating your outreach queue. You can also view and qualify existing contacts in the CRM.
               </p>
             </div>
             <div className="flex items-center gap-2 pt-2">

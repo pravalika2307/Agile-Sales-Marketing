@@ -270,10 +270,10 @@ export const DealDetailDrawer: React.FC<DealDetailDrawerProps> = ({
           {/* Activity / Communications Policy Banner */}
           <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-1.5 text-xs text-slate-500">
             <span className="font-semibold text-slate-700 block">
-              Enterprise Data Integrity Notice
+              Activity History & Verification
             </span>
             <p>
-              Timeline events, call transcripts, and email touchpoints are populated exclusively from verified CRM activity logs. No synthetic engagement records are generated.
+              Timeline events, call transcripts, and email touchpoints are recorded directly from verified communication logs.
             </p>
           </div>
         </div>

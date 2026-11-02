@@ -20,6 +20,7 @@ import {
 } from "@/services/campaignService";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -29,8 +30,10 @@ import {
   TableRow,
   TableHead,
   TableCell,
+  TableLoadingRow,
+  TableEmptyRow,
 } from "@/components/ui/table";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ConfirmModal } from "@/components/ui/modal";
 import {
   ArrowLeft,
   Users,
@@ -863,49 +866,47 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
 
       {/* 7. Members Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-        {isLoadingMembers ? (
-          <div className="p-12 text-center text-xs text-slate-400 space-y-2">
-            <RefreshCw className="w-6 h-6 animate-spin mx-auto text-slate-300" />
-            <p>Loading list members...</p>
-          </div>
-        ) : members.length === 0 ? (
-          <div className="p-12 text-center text-xs text-slate-400 space-y-2">
-            <Users className="w-8 h-8 text-slate-300 mx-auto" />
-            <p className="font-medium text-slate-600">No members found in this list.</p>
-            <p className="text-[11px] text-slate-400">
-              {searchQuery ? "Try adjusting your search criteria." : "Add leads or contacts to this list to begin."}
-            </p>
-          </div>
-        ) : (
-          <Table>
-            <TableHeader className="bg-slate-50/75 border-b border-slate-100">
-              <TableRow>
-                <TableHead className="w-10">
-                  <button
-                    onClick={handleToggleSelectAll}
-                    className="p-1 rounded text-slate-400 hover:text-header"
-                  >
-                    {selectedMemberIds.size === members.length ? (
-                      <CheckSquare className="w-4 h-4 text-agile-red" />
-                    ) : selectedMemberIds.size > 0 ? (
-                      <MinusSquare className="w-4 h-4 text-agile-red" />
-                    ) : (
-                      <Square className="w-4 h-4" />
-                    )}
-                  </button>
-                </TableHead>
-                <TableHead className="text-xs font-semibold text-slate-600">Lead / Contact</TableHead>
-                <TableHead className="text-xs font-semibold text-slate-600">Email Address</TableHead>
-                <TableHead className="text-xs font-semibold text-slate-600">Phone</TableHead>
-                <TableHead className="text-xs font-semibold text-slate-600">Company</TableHead>
-                <TableHead className="text-xs font-semibold text-slate-600">Job Title</TableHead>
-                <TableHead className="text-xs font-semibold text-slate-600">Source</TableHead>
-                <TableHead className="text-xs font-semibold text-slate-600">Added</TableHead>
-                <TableHead className="text-xs font-semibold text-slate-600 text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {members.map((member) => {
+        <Table>
+          <TableHeader className="bg-slate-50/75 border-b border-slate-100">
+            <TableRow>
+              <TableHead className="w-10">
+                <button
+                  onClick={handleToggleSelectAll}
+                  className="p-1 rounded text-slate-400 hover:text-header"
+                  disabled={isLoadingMembers || members.length === 0}
+                  aria-label="Toggle select all members"
+                >
+                  {selectedMemberIds.size === members.length && members.length > 0 ? (
+                    <CheckSquare className="w-4 h-4 text-agile-red" />
+                  ) : selectedMemberIds.size > 0 ? (
+                    <MinusSquare className="w-4 h-4 text-agile-red" />
+                  ) : (
+                    <Square className="w-4 h-4" />
+                  )}
+                </button>
+              </TableHead>
+              <TableHead className="text-xs font-semibold text-slate-600">Lead / Contact</TableHead>
+              <TableHead className="text-xs font-semibold text-slate-600">Email Address</TableHead>
+              <TableHead className="text-xs font-semibold text-slate-600">Phone</TableHead>
+              <TableHead className="text-xs font-semibold text-slate-600">Company</TableHead>
+              <TableHead className="text-xs font-semibold text-slate-600">Job Title</TableHead>
+              <TableHead className="text-xs font-semibold text-slate-600">Source</TableHead>
+              <TableHead className="text-xs font-semibold text-slate-600">Added</TableHead>
+              <TableHead className="text-xs font-semibold text-slate-600 text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoadingMembers ? (
+              <TableLoadingRow colSpan={9} rows={5} />
+            ) : members.length === 0 ? (
+              <TableEmptyRow
+                colSpan={9}
+                title="No members found in this list"
+                description={searchQuery ? "Try adjusting your search criteria." : "Add leads or contacts to this list to begin."}
+                icon={<Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />}
+              />
+            ) : (
+              members.map((member) => {
                 const isSelected = selectedMemberIds.has(member.id);
 
                 return (
@@ -1017,23 +1018,22 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
                     </TableCell>
                   </TableRow>
                 );
-              })}
-            </TableBody>
-          </Table>
-        )}
+              })
+            )}
+          </TableBody>
+        </Table>
       </div>
 
       {/* 8. Modal: Attach List to Campaign */}
       <Modal
         isOpen={isAttachModalOpen}
-        onClose={() => setIsAttachModalOpen(false)}
+        onClose={() => {
+          if (!isAttaching) setIsAttachModalOpen(false);
+        }}
         title={`Attach "${listDetail.name}" to Campaign`}
+        description="Select an outreach campaign to associate with this list. Newly added eligible members will be synchronized to the campaign audience without resetting existing outreach steps."
       >
         <div className="space-y-4">
-          <p className="text-xs text-slate-600">
-            Select an outreach campaign to associate with this list. Newly added eligible members will be synchronized to the campaign audience without resetting existing outreach steps.
-          </p>
-
           {isLoadingCampaigns ? (
             <div className="py-6 text-center text-xs text-slate-400">
               <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-slate-300" />
@@ -1044,20 +1044,16 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
               No campaigns available. Create a campaign first.
             </div>
           ) : (
-            <div className="space-y-3">
-              <label className="text-xs font-semibold text-slate-700">Campaign</label>
-              <select
-                value={selectedCampaignId}
-                onChange={(e) => setSelectedCampaignId(e.target.value)}
-                className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
-              >
-                {availableCampaigns.map((camp) => (
-                  <option key={camp.id} value={camp.id}>
-                    {camp.name} ({camp.type}) — {camp.status}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Target Campaign"
+              helperText="Campaign that will receive audience synchronization from this list."
+              value={selectedCampaignId}
+              onChange={(e) => setSelectedCampaignId(e.target.value)}
+              options={availableCampaigns.map((camp) => ({
+                value: camp.id,
+                label: `${camp.name} (${camp.type}) — ${camp.status}`,
+              }))}
+            />
           )}
 
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
@@ -1065,6 +1061,7 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
               variant="outline"
               size="sm"
               onClick={() => setIsAttachModalOpen(false)}
+              disabled={isAttaching}
               className="text-xs"
             >
               Cancel
@@ -1074,9 +1071,10 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
               size="sm"
               onClick={handleAttachListToCampaign}
               disabled={isAttaching || availableCampaigns.length === 0}
+              isLoading={isAttaching}
               className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
             >
-              {isAttaching ? "Attaching..." : "Attach and Sync"}
+              Attach and Sync
             </Button>
           </div>
         </div>
@@ -1085,34 +1083,29 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
       {/* 9. Modal: Add Selected Leads to Campaign */}
       <Modal
         isOpen={isAddSelectedModalOpen}
-        onClose={() => setIsAddSelectedModalOpen(false)}
+        onClose={() => {
+          if (!isEnrollingSelected) setIsAddSelectedModalOpen(false);
+        }}
         title={`Add ${selectedMemberIds.size} Selected Lead(s) to Campaign`}
+        description="Enroll the selected leads directly into an active or draft campaign. Unresolved leads without emails will be skipped."
       >
         <div className="space-y-4">
-          <p className="text-xs text-slate-600">
-            Enroll the selected leads directly into an active or draft campaign. Unresolved leads without emails will be skipped.
-          </p>
-
           {isLoadingCampaigns ? (
             <div className="py-6 text-center text-xs text-slate-400">
               <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-slate-300" />
               Loading campaigns...
             </div>
           ) : (
-            <div className="space-y-3">
-              <label className="text-xs font-semibold text-slate-700">Target Campaign</label>
-              <select
-                value={selectedEnrollCampaignId}
-                onChange={(e) => setSelectedEnrollCampaignId(e.target.value)}
-                className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
-              >
-                {availableCampaigns.map((camp) => (
-                  <option key={camp.id} value={camp.id}>
-                    {camp.name} ({camp.type}) — {camp.status}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Target Campaign"
+              helperText="Select the outreach campaign sequence."
+              value={selectedEnrollCampaignId}
+              onChange={(e) => setSelectedEnrollCampaignId(e.target.value)}
+              options={availableCampaigns.map((camp) => ({
+                value: camp.id,
+                label: `${camp.name} (${camp.type}) — ${camp.status}`,
+              }))}
+            />
           )}
 
           <div className="flex justify-between items-center pt-2 border-t border-slate-100">
@@ -1120,6 +1113,7 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
               variant="outline"
               size="sm"
               onClick={() => setIsAddSelectedModalOpen(false)}
+              disabled={isEnrollingSelected}
               className="text-xs"
             >
               Cancel
@@ -1137,6 +1131,7 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
                   }
                 }}
                 disabled={isEnrollingSelected || availableCampaigns.length === 0}
+                isLoading={isEnrollingSelected}
                 className="text-xs border-rose-300 text-rose-700 hover:bg-rose-50"
               >
                 <Send className="w-3 h-3 mr-1 text-rose-600" />
@@ -1147,9 +1142,10 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
                 size="sm"
                 onClick={handleEnrollSelectedToCampaign}
                 disabled={isEnrollingSelected || availableCampaigns.length === 0}
+                isLoading={isEnrollingSelected}
                 className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
               >
-                {isEnrollingSelected ? "Enrolling..." : "Enroll Selected"}
+                Enroll Selected
               </Button>
             </div>
           </div>
@@ -1157,46 +1153,19 @@ export const LeadListDetailView: React.FC<LeadListDetailViewProps> = ({
       </Modal>
 
       {/* 10. Modal: Confirm Remove Single Member */}
-      <Modal
+      <ConfirmModal
         isOpen={Boolean(memberToRemove)}
-        onClose={() => setMemberToRemove(null)}
+        onClose={() => {
+          if (!isRemovingMember) setMemberToRemove(null);
+        }}
         title="Remove Member from List"
-      >
-        <div className="space-y-4">
-          <p className="text-xs text-slate-600 leading-relaxed">
-            Are you sure you want to remove <strong>{memberToRemove?.full_name}</strong> from{" "}
-            <strong>{listDetail.name}</strong>?
-          </p>
-          <div className="p-3 bg-slate-50 rounded-lg text-[11px] text-slate-500 space-y-1 border border-slate-100">
-            <p>
-              • The underlying CRM Contact and Lead records will <strong>not</strong> be deleted.
-            </p>
-            <p>
-              • Any existing campaign enrollment or outreach history remains completely intact.
-            </p>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setMemberToRemove(null)}
-              className="text-xs"
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleConfirmRemoveMember}
-              disabled={isRemovingMember}
-              className="text-xs bg-rose-600 hover:bg-rose-700 text-white"
-            >
-              {isRemovingMember ? "Removing..." : "Remove Member"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        message={`Are you sure you want to remove ${memberToRemove?.full_name || "this member"} from "${listDetail.name}"?`}
+        consequenceNotice="The underlying CRM Contact and Lead records will not be deleted. Any existing campaign enrollment or outreach history remains completely intact."
+        confirmLabel="Remove Member"
+        confirmVariant="danger"
+        isLoading={isRemovingMember}
+        onConfirm={handleConfirmRemoveMember}
+      />
 
       {/* Direct Mail Preflight Modal */}
       {directMailCampaign && (

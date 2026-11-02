@@ -96,7 +96,7 @@ export const ClientApprovalQueueWidget: React.FC = () => {
       );
       setReviewingItem(null);
       setNotificationToast(
-        `Approval triggered via n8n webhook for "${item.campaignName}". Event payload dispatched successfully.`
+        `Approval submitted for "${item.campaignName}". Content workflow updated successfully.`
       );
 
       // Auto-clear toast
@@ -258,7 +258,7 @@ export const ClientApprovalQueueWidget: React.FC = () => {
                 <Send className="w-3.5 h-3.5 text-indigo-600" />
                 n8n Approval Webhook Integration
               </span>
-              Triggering this action sends an HMAC-signed event to the client approval pipeline in n8n, emailing client decision-makers with a one-click authorization token.
+              Triggering this action securely notifies client decision-makers with a one-click review and authorization link.
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">

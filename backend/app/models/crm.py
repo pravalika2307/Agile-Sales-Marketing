@@ -321,6 +321,22 @@ class Contact(Base):
                 _contact_unmigrated_profile_store[cid] = {}
             _contact_unmigrated_profile_store[cid]["linkedin_profile_url"] = val
 
+    if _check_column_exists("contacts", "is_test"):
+        is_test: Mapped[bool] = mapped_column(
+            Boolean,
+            default=False,
+            nullable=False,
+            index=True,
+        )
+    else:
+        @property
+        def is_test(self) -> bool:
+            return getattr(self, "_is_test_val", False)
+
+        @is_test.setter
+        def is_test(self, val: bool):
+            self._is_test_val = bool(val)
+
     @property
     def linkedin_url(self) -> Optional[str]:
         return self.linkedin_profile_url

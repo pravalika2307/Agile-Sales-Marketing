@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -72,32 +73,26 @@ export default function SalesSettingsPage() {
           <CardContent className="p-4 sm:p-5">
             <form onSubmit={handleSave} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Default Outbound Caller ID
-                  </label>
-                  <input
-                    type="text"
-                    value={callerId}
-                    onChange={(e) => setCallerId(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-agile-red"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-slate-700 block mb-1">
-                    Primary Voice Agent ID
-                  </label>
-                  <input
-                    type="text"
-                    value={agentId}
-                    onChange={(e) => setAgentId(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-agile-red"
-                  />
-                </div>
+                <Input
+                  label="Default Outbound Caller ID"
+                  helperText="Verified telephone number shown to recipients during automated SDR outreach."
+                  type="text"
+                  value={callerId}
+                  onChange={(e) => setCallerId(e.target.value)}
+                  className="font-mono text-xs"
+                />
+                <Input
+                  label="Primary Voice Agent ID"
+                  helperText="Retell AI agent model identifier assigned to outbound voice tasks."
+                  type="text"
+                  value={agentId}
+                  onChange={(e) => setAgentId(e.target.value)}
+                  className="font-mono text-xs"
+                />
               </div>
 
               <div className="p-3 rounded-lg bg-agile-lightorange/60 border border-agile-outlinered/30 text-xs text-slate-700">
-                <strong>Data Truth Protection:</strong> All prospect email addresses and contact phone numbers are encrypted in transit and never overwritten by synthetic payloads.
+                <strong>Data Privacy & Security:</strong> All prospect email addresses and contact phone numbers are encrypted in transit and protected against unauthorized modifications.
               </div>
 
               <div className="flex justify-end pt-2">

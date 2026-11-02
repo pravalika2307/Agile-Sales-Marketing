@@ -225,6 +225,29 @@ def send_voice_outreach(
     ):
         raise InconsistentEnrollmentError("Inconsistent campaign contact enrollment.")
 
+    # 2.5 Consent and suppression verification (fail-closed before campaign state checks)
+    contact = outreach.contact
+    is_consent_ok, consent_reason = check_voice_consent(contact)
+    if not is_consent_ok:
+        logger.warning(
+            "Blocked voice outreach %s: %s (contact_id=%s)",
+            outreach.id,
+            consent_reason,
+            contact.id if contact else None,
+        )
+        outreach.status = "cancelled"
+        cancel_evt = OutreachEvent(
+            organization_id=org_id,
+            outreach_id=outreach.id,
+            event_type="cancelled",
+            event_metadata={"reason": consent_reason},
+            occurred_at=datetime.now(timezone.utc),
+        )
+        db.add(cancel_evt)
+        db.commit()
+        db.refresh(outreach)
+        raise SuppressedRecipientError(f"Cannot dispatch voice call: {consent_reason}")
+
     if outreach.campaign.status == "completed":
         raise CampaignCompletedError("Cannot execute outreach for a completed campaign.")
 
@@ -241,29 +264,6 @@ def send_voice_outreach(
         raise InvalidOutreachTransitionError(
             f"Cannot initiate voice outreach in status '{outreach.status}'. Allowed initial status is 'draft'."
         )
-
-    # 4. Consent and suppression verification
-    contact = outreach.contact
-    is_consent_ok, consent_reason = check_voice_consent(contact)
-    if not is_consent_ok:
-        logger.warning(
-            "Blocked voice outreach %s: %s (contact_id=%s)",
-            outreach.id,
-            consent_reason,
-            contact.id,
-        )
-        outreach.status = "cancelled"
-        cancel_evt = OutreachEvent(
-            organization_id=org_id,
-            outreach_id=outreach.id,
-            event_type="cancelled",
-            event_metadata={"reason": consent_reason},
-            occurred_at=datetime.now(timezone.utc),
-        )
-        db.add(cancel_evt)
-        db.commit()
-        db.refresh(outreach)
-        raise SuppressedRecipientError(f"Cannot dispatch voice call: {consent_reason}")
 
     # 5. Destination phone validation
     raw_phone = outreach.recipient if outreach.recipient else (contact.phone if contact else None)
@@ -703,6 +703,27 @@ def complete_simulated_voice_call(
         db.refresh(outreach)
     if call_record:
         db.refresh(call_record)
+
+    if outreach and outreach.campaign_contact_id and outreach.campaign_id:
+        from app.services.workflow_service import get_campaign_ordered_steps
+        camp = db.get(Campaign, outreach.campaign_id)
+        if camp:
+            active_steps = [s for s in get_campaign_ordered_steps(db, camp) if s.is_active]
+            cc_current = outreach.campaign_contact.current_step if outreach.campaign_contact else 1
+            if active_steps and len(active_steps) > 1:
+                try:
+                    from app.services.campaign_scheduler import advance_campaign_contact_sequence
+                    advance_campaign_contact_sequence(
+                        db=db,
+                        campaign_contact_id=outreach.campaign_contact_id,
+                        org_id=org_id,
+                        email_provider=email_provider,
+                        auto_dispatch=True,
+                    )
+                except Exception as exc:
+                    logger.warning("Error auto-advancing sequence after simulated voice call completion: %s", exc)
+
+
 
     return SimulateMockCallCompletionResponse(
         status=result.get("status", "success"),

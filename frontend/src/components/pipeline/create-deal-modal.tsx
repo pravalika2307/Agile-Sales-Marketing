@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { FormSection } from "@/components/ui/form-section";
 import {
   PipelineStageItem,
   AvailableContact,
@@ -16,7 +17,7 @@ export interface CreateDealModalProps {
   onClose: () => void;
   stages: PipelineStageItem[];
   contacts: AvailableContact[];
-  onCreateDeal: (payload: DealCreatePayload) => void;
+  onCreateDeal: (payload: DealCreatePayload) => void | Promise<void>;
 }
 
 export const CreateDealModal: React.FC<CreateDealModalProps> = ({
@@ -31,7 +32,9 @@ export const CreateDealModal: React.FC<CreateDealModalProps> = ({
   const [amount, setAmount] = React.useState<string>("0");
   const [closeDate, setCloseDate] = React.useState("");
   const [contactId, setContactId] = React.useState("");
-  const [formError, setFormError] = React.useState("");
+  const [nameError, setNameError] = React.useState<string | null>(null);
+  const [amountError, setAmountError] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   React.useEffect(() => {
     if (stages.length > 0 && !stageId) {
@@ -39,160 +42,162 @@ export const CreateDealModal: React.FC<CreateDealModalProps> = ({
     }
   }, [stages, stageId]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setNameError(null);
+    setAmountError(null);
+
+    let hasError = false;
     if (!dealName.trim()) {
-      setFormError("Deal name is required.");
-      return;
-    }
-    if (!stageId) {
-      setFormError("Pipeline stage is required.");
-      return;
+      setNameError("Please enter a deal or opportunity title.");
+      hasError = true;
     }
 
     const numericAmount = parseFloat(amount);
     if (isNaN(numericAmount) || numericAmount < 0) {
-      setFormError("Amount must be a non-negative number.");
-      return;
+      setAmountError("Please enter a valid non-negative number.");
+      hasError = true;
     }
 
-    onCreateDeal({
-      name: dealName.trim(),
-      pipeline_stage_id: stageId,
-      amount: numericAmount,
-      contact_id: contactId ? contactId : undefined,
-      expected_close_date: closeDate ? closeDate : undefined,
-      status: "open",
-    });
+    if (hasError) return;
 
-    // Reset form
-    setDealName("");
-    setAmount("0");
-    setCloseDate("");
-    setContactId("");
-    setFormError("");
-    onClose();
+    setIsSubmitting(true);
+    try {
+      await onCreateDeal({
+        name: dealName.trim(),
+        pipeline_stage_id: stageId,
+        amount: numericAmount,
+        contact_id: contactId ? contactId : undefined,
+        expected_close_date: closeDate ? closeDate : undefined,
+        status: "open",
+      });
+
+      // Reset form
+      setDealName("");
+      setAmount("0");
+      setCloseDate("");
+      setContactId("");
+      setNameError(null);
+      setAmountError(null);
+      onClose();
+    } catch {
+      // Keep entered values so user does not lose input
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={isSubmitting ? () => {} : onClose}
       title="Create New Opportunity"
-      description="Add a deal opportunity to your sales pipeline. Strictly mapped to backend Deal schema."
+      description="Add a deal opportunity to track revenue, win probability, and stage progression in your pipeline."
       maxWidth="md"
     >
-      <form onSubmit={handleSubmit} className="space-y-4 pt-2">
-        {formError && (
-          <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700">
-            {formError}
-          </div>
-        )}
-
-        {/* Deal Name */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-700 block">
-            Deal Name <span className="text-agile-red">*</span>
-          </label>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Section 1: Opportunity Information */}
+        <FormSection title="Deal Overview">
           <Input
-            type="text"
-            placeholder="e.g., Accounts Operations Contract Renewal"
+            label="Deal Name"
+            required
+            placeholder="e.g. Accounts Operations Contract Renewal"
             value={dealName}
+            error={nameError || undefined}
             onChange={(e) => {
               setDealName(e.target.value);
-              if (formError) setFormError("");
+              if (nameError) setNameError(null);
             }}
-            className="text-xs h-9"
+            helperText="A clear title identifying the deal, company, or renewal opportunity."
             autoFocus
           />
-        </div>
 
-        {/* Pipeline Stage */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-700 block">
-            Pipeline Stage <span className="text-agile-red">*</span>
-          </label>
-          <Select
-            value={stageId}
-            onChange={(e) => setStageId(e.target.value)}
-            className="text-xs h-9"
-          >
-            {stages.map((stage) => (
-              <option key={stage.id} value={stage.id}>
-                {stage.orderIndex}. {stage.name} ({stage.probabilityPct}% win probability)
-              </option>
-            ))}
-          </Select>
-        </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Select
+              label="Pipeline Stage"
+              required
+              value={stageId}
+              onChange={(e) => setStageId(e.target.value)}
+              helperText="Initial stage in your pipeline."
+            >
+              {stages.map((stage) => (
+                <option key={stage.id} value={stage.id}>
+                  {stage.orderIndex}. {stage.name} ({stage.probabilityPct}% win probability)
+                </option>
+              ))}
+            </Select>
 
-        {/* Deal Value Amount */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-700 block">
-            Deal Amount (USD)
-          </label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">
-              $
-            </span>
             <Input
+              label="Deal Value ($ USD)"
               type="number"
               min="0"
               step="any"
               placeholder="0.00"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="text-xs h-9 pl-7"
+              error={amountError || undefined}
+              onChange={(e) => {
+                setAmount(e.target.value);
+                if (amountError) setAmountError(null);
+              }}
+              helperText="Estimated deal value or expected contract total."
             />
           </div>
-        </div>
+        </FormSection>
 
-        {/* Expected Close Date */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-700 block">
-            Expected Close Date
-          </label>
-          <Input
-            type="date"
-            value={closeDate}
-            onChange={(e) => setCloseDate(e.target.value)}
-            className="text-xs h-9"
-          />
-        </div>
+        {/* Section 2: Timeline & Contact Linkage (Progressive Disclosure) */}
+        <FormSection
+          title="Timeline & Contact Linkage"
+          description="Link an associated prospect or target close date."
+          collapsible
+          defaultOpen={false}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Expected Close Date"
+              optional
+              type="date"
+              value={closeDate}
+              onChange={(e) => setCloseDate(e.target.value)}
+              helperText="Target date for finalizing the contract."
+            />
 
-        {/* Associated Contact */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-slate-700 block">
-            Associated CRM Contact (Optional)
-          </label>
-          <Select
-            value={contactId}
-            onChange={(e) => setContactId(e.target.value)}
-            className="text-xs h-9"
-          >
-            <option value="">No Contact Linked</option>
-            {contacts.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.email})
-              </option>
-            ))}
-          </Select>
-        </div>
+            <Select
+              label="Associated CRM Contact"
+              optional
+              value={contactId}
+              onChange={(e) => setContactId(e.target.value)}
+              helperText="Primary point of contact for this deal."
+            >
+              <option value="">No Contact Linked</option>
+              {contacts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.email})
+                </option>
+              ))}
+            </Select>
+          </div>
+        </FormSection>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
+        <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
           <Button
             type="button"
-            variant="outline"
+            variant="secondary"
+            size="sm"
+            disabled={isSubmitting}
             onClick={onClose}
-            className="text-xs h-9 border-slate-200"
+            className="text-xs"
           >
             Cancel
           </Button>
           <Button
             type="submit"
-            className="text-xs h-9 bg-agile-red hover:bg-agile-red/90 text-white font-medium"
+            size="sm"
+            isLoading={isSubmitting}
+            disabled={isSubmitting || !dealName.trim()}
+            className="text-xs shadow-xs"
           >
-            Create Deal
+            Create Opportunity
           </Button>
         </div>
       </form>

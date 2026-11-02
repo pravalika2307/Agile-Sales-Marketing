@@ -300,6 +300,7 @@ def send_sms_outreach(
     outreach_id: uuid.UUID,
     provider: Optional[SMSProvider] = None,
     raise_on_failure: bool = False,
+    auto_advance_sequence: bool = True,
 ) -> Outreach:
     """
     Executes delivery of an SMS outreach item.
@@ -435,4 +436,17 @@ def send_sms_outreach(
 
     db.commit()
     db.refresh(outreach)
+
+    if result.success and auto_advance_sequence and outreach.campaign_contact_id:
+        try:
+            from app.services.campaign_scheduler import advance_campaign_contact_sequence
+            advance_campaign_contact_sequence(
+                db=db,
+                campaign_contact_id=outreach.campaign_contact_id,
+                org_id=org_id,
+                auto_dispatch=True,
+            )
+        except Exception as exc:
+            logger.warning("Error auto-advancing sequence after SMS delivery: %s", exc)
+
     return outreach

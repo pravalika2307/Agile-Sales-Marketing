@@ -17,6 +17,7 @@ import {
   LogOut,
   Users,
   MessageSquare,
+  CheckCircle2,
 } from "lucide-react";
 import { ModeToggle } from "./mode-toggle";
 import { useAppMode } from "@/contexts/AppModeContext";
@@ -52,6 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [profileModalOpen, setProfileModalOpen] = React.useState(false);
   const [teamModalOpen, setTeamModalOpen] = React.useState(false);
   const [chatModalOpen, setChatModalOpen] = React.useState(false);
+  const [supportSubmitted, setSupportSubmitted] = React.useState(false);
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
 
   const menuRef = React.useRef<HTMLDivElement>(null);
@@ -380,34 +382,46 @@ export const Header: React.FC<HeaderProps> = ({
         maxWidth="md"
       >
         <div className="space-y-4 py-2">
-          <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-900">
-            <span className="font-semibold block mb-0.5">Need help with n8n approval automation or campaign delivery?</span>
-            Our automated dispatch webhook validates client approvals and schedules multi-platform creatives instantly.
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-700">Quick Support Note</label>
-            <textarea
-              rows={3}
-              placeholder="Describe your question or campaign issue..."
-              className="w-full p-2.5 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => setChatModalOpen(false)}>
-              Close
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white"
-              onClick={() => {
-                setChatModalOpen(false);
-                alert("Support ticket logged with Marketing Ops.");
-              }}
-            >
-              Send Message
-            </Button>
-          </div>
+          {supportSubmitted ? (
+            <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Your support request has been recorded. Our team will follow up shortly.</span>
+            </div>
+          ) : (
+            <>
+              <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-900">
+                <span className="font-semibold block mb-0.5">Need help with workflow automation or campaign delivery?</span>
+                Submit a note directly to our operations and technical support team.
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-700">Quick Support Note</label>
+                <textarea
+                  rows={3}
+                  placeholder="Describe your question or campaign issue..."
+                  className="w-full p-2.5 text-xs rounded-lg border border-slate-200 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setChatModalOpen(false)}>
+                  Close
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                  onClick={() => {
+                    setSupportSubmitted(true);
+                    setTimeout(() => {
+                      setSupportSubmitted(false);
+                      setChatModalOpen(false);
+                    }, 1400);
+                  }}
+                >
+                  Send Message
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </Modal>
 

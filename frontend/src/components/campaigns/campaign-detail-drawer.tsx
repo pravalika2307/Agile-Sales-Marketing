@@ -32,6 +32,8 @@ import {
   ChannelCapability,
 } from "@/services/entitlementsService";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   X,
   Send,
@@ -115,6 +117,9 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
   const [contactSearchQuery, setContactSearchQuery] = React.useState("");
   const [selectedContactIds, setSelectedContactIds] = React.useState<string[]>([]);
   const [isEnrolling, setIsEnrolling] = React.useState(false);
+
+  // Enrolled contacts search in Audience tab
+  const [enrolledSearchQuery, setEnrolledSearchQuery] = React.useState("");
 
   // Remove Contact Modal State
   const [contactToRemove, setContactToRemove] = React.useState<CampaignContactItem | null>(null);
@@ -646,6 +651,17 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
     };
   }, [isOpen, onClose]);
 
+  const filteredEnrolledContacts = React.useMemo(() => {
+    if (!campaign?.contacts) return [];
+    const q = enrolledSearchQuery.toLowerCase().trim();
+    if (!q) return campaign.contacts;
+    return campaign.contacts.filter((c) =>
+      (c.contactName || "").toLowerCase().includes(q) ||
+      (c.contactEmail || "").toLowerCase().includes(q) ||
+      (c.companyName || "").toLowerCase().includes(q)
+    );
+  }, [campaign?.contacts, enrolledSearchQuery]);
+
   if (!isOpen || !campaign) return null;
 
   // Filter contacts for enrollment modal
@@ -682,20 +698,35 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
         <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-3 bg-slate-50/50">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                 Campaign Sequence
               </span>
               <span className="text-slate-300">•</span>
-              <span className="font-mono text-[11px] text-slate-400">
-                {campaign.id.substring(0, 8)}...
+              <span className="text-xs font-medium text-slate-600">
+                {CAMPAIGN_TYPE_LABELS[campaign.type] || campaign.type}
               </span>
             </div>
-            <h2 className="text-lg font-bold text-header leading-tight">
-              {campaign.name}
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {CAMPAIGN_TYPE_LABELS[campaign.type]} • Created{" "}
-              {new Date(campaign.createdAt).toLocaleDateString()}
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h2 className="text-lg font-bold text-header leading-tight">
+                {campaign.name}
+              </h2>
+              {campaign.status === "active" && (
+                <Badge variant="coral" dot>
+                  Active
+                </Badge>
+              )}
+              {campaign.status === "draft" && (
+                <Badge variant="neutral">Draft</Badge>
+              )}
+              {campaign.status === "paused" && (
+                <Badge variant="warning">Paused</Badge>
+              )}
+              {campaign.status === "completed" && (
+                <Badge variant="success">Completed</Badge>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              {campaign.description || `Created ${new Date(campaign.createdAt).toLocaleDateString()}`}
             </p>
           </div>
 
@@ -721,49 +752,28 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
         </div>
 
         {/* Action Header Strip */}
-        <div className="px-5 py-3 border-b border-slate-100 bg-white flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            {campaign.status === "active" && (
-              <Badge variant="coral" dot>
-                Active
-              </Badge>
-            )}
-            {campaign.status === "draft" && (
-              <Badge variant="neutral">Draft</Badge>
-            )}
-            {campaign.status === "paused" && (
-              <Badge variant="warning">Paused</Badge>
-            )}
-            {campaign.status === "completed" && (
-              <Badge variant="success">Completed</Badge>
-            )}
-
-            <span className="text-xs text-slate-500 font-medium ml-1">
-              {campaign.contacts.length} enrolled contacts
-            </span>
-          </div>
-
+        <div className="px-5 py-2.5 border-b border-slate-100 bg-white flex items-center justify-between gap-2 flex-wrap">
           {/* Lifecycle actions */}
           <div className="flex items-center gap-1.5">
             {campaign.status === "draft" && (
               <Button
                 variant="primary"
-                size="sm"
+                size="xs"
                 disabled={isUpdatingStatus}
                 onClick={() => handleStatusTransition("active")}
-                className="text-xs shadow-xs inline-flex items-center gap-1"
+                className="h-7 text-xs shadow-xs inline-flex items-center gap-1"
               >
                 <Play className="w-3 h-3" />
-                <span>{isUpdatingStatus ? "Activating..." : "Activate"}</span>
+                <span>{isUpdatingStatus ? "Activating..." : "Activate Sequence"}</span>
               </Button>
             )}
             {campaign.status === "active" && (
               <Button
                 variant="secondary"
-                size="sm"
+                size="xs"
                 disabled={isUpdatingStatus}
                 onClick={() => handleStatusTransition("paused")}
-                className="text-xs inline-flex items-center gap-1"
+                className="h-7 text-xs inline-flex items-center gap-1"
               >
                 <Pause className="w-3 h-3" />
                 <span>{isUpdatingStatus ? "Pausing..." : "Pause"}</span>
@@ -772,10 +782,10 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
             {campaign.status === "paused" && (
               <Button
                 variant="primary"
-                size="sm"
+                size="xs"
                 disabled={isUpdatingStatus}
                 onClick={() => handleStatusTransition("active")}
-                className="text-xs shadow-xs inline-flex items-center gap-1"
+                className="h-7 text-xs shadow-xs inline-flex items-center gap-1"
               >
                 <Play className="w-3 h-3" />
                 <span>{isUpdatingStatus ? "Resuming..." : "Resume"}</span>
@@ -784,20 +794,24 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
             {campaign.status !== "completed" && (
               <Button
                 variant="outline"
-                size="sm"
+                size="xs"
                 disabled={isUpdatingStatus}
                 onClick={() => handleStatusTransition("completed")}
-                className="text-xs"
+                className="h-7 text-xs text-slate-600 hover:text-slate-800"
               >
                 Complete
               </Button>
             )}
+          </div>
+
+          {/* Workflow Builder & Channel Shortcuts */}
+          <div className="flex items-center gap-1.5 ml-auto">
             {onOpenWorkflowBuilder && (
               <Button
                 variant="outline"
-                size="sm"
+                size="xs"
                 onClick={() => onOpenWorkflowBuilder(campaign)}
-                className="text-xs inline-flex items-center gap-1 border-agile-red/30 text-agile-red hover:bg-agile-lightorange"
+                className="h-7 text-xs inline-flex items-center gap-1 border-agile-red/30 text-agile-red hover:bg-agile-lightorange font-medium"
                 title="Open Visual Campaign Workflow Builder"
               >
                 <GitBranch className="w-3 h-3 text-agile-red" />
@@ -807,9 +821,9 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
             {(campaign.steps.some((s) => s.stepType === "physical_mail") || campaign.channels?.includes("physical_mail")) && (
               <Button
                 variant="outline"
-                size="sm"
+                size="xs"
                 onClick={() => setIsPhysicalMailModalOpen(true)}
-                className="text-xs inline-flex items-center gap-1 border-amber-300 text-amber-700 hover:bg-amber-50"
+                className="h-7 text-xs inline-flex items-center gap-1 border-amber-300 text-amber-800 hover:bg-amber-50"
                 title="Direct Mail Pre-Flight & Test Dispatch"
               >
                 <Send className="w-3 h-3 text-amber-600" />
@@ -819,27 +833,28 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
             {(campaign.steps.some((s) => s.stepType === "linkedin") || campaign.channels?.includes("linkedin") || campaign.workflowConfig?.nodes?.some((n: any) => n.type === "linkedin")) && (
               <Button
                 variant="outline"
-                size="sm"
+                size="xs"
                 onClick={() => {
                   setIsLinkedInDrawerOpen(true);
                   if (campaign) loadLinkedInQueue(campaign.id);
                 }}
-                className="text-xs inline-flex items-center gap-1 border-sky-300 text-sky-700 hover:bg-sky-50"
+                className="h-7 text-xs inline-flex items-center gap-1 border-sky-300 text-sky-800 hover:bg-sky-50"
                 title="Open Assisted LinkedIn Outreach Workspace"
               >
                 <Share2 className="w-3 h-3 text-[#0077b5]" />
-                <span>LinkedIn Outreach</span>
+                <span>LinkedIn</span>
               </Button>
             )}
+            <div className="h-4 w-px bg-slate-200 mx-0.5" />
             <Button
               variant="outline"
-              size="sm"
+              size="xs"
               disabled={isDeletingCampaign}
               onClick={() => {
                 setDeleteCampaignError(null);
                 setIsDeleteCampaignModalOpen(true);
               }}
-              className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 inline-flex items-center gap-1"
+              className="h-7 text-xs text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300 inline-flex items-center gap-1"
               title="Delete Campaign"
               aria-label="Delete Campaign"
             >
@@ -879,780 +894,864 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
           </div>
         )}
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-6 text-xs text-slate-700">
-          {/* Section: Campaign Overview */}
-          <div className="space-y-3">
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Overview & Schedule
-            </h4>
-            <div className="rounded-lg border border-slate-200/80 p-3.5 bg-slate-50/50 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Campaign Type</span>
-                <span className="text-slate-800 font-semibold">
-                  {CAMPAIGN_TYPE_LABELS[campaign.type]}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Lifecycle Status</span>
-                <span className="font-semibold text-header">
-                  {CAMPAIGN_STATUS_LABELS[campaign.status]}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Supported Channels</span>
-                <span className="text-slate-800 font-medium flex items-center gap-2 flex-wrap justify-end">
-                  {uniqueChannels.map((ch, idx) => {
-                    const isVoiceUnlocked = channelCapabilities["voice"]?.is_unlocked ?? false;
-                    const isSmsUnlocked = channelCapabilities["sms"]?.is_unlocked ?? false;
-                    const isMailUnlocked = channelCapabilities["physical_mail"]?.is_unlocked ?? false;
-
-                    return (
-                      <React.Fragment key={ch}>
-                        {idx > 0 && <span className="text-slate-300">•</span>}
-                        {ch === "email" && (
-                          <span className="flex items-center gap-1 text-slate-700">
-                            <Mail className="w-3.5 h-3.5 text-slate-400" />
-                            Email
-                          </span>
-                        )}
-                        {ch === "voice" && (
-                          <span
-                            className={`flex items-center gap-1 ${
-                              isVoiceUnlocked ? "text-purple-700" : "text-amber-700"
-                            }`}
-                            title={
-                              isVoiceUnlocked
-                                ? "Voice SDR Enabled (Retell AI)"
-                                : "Administrative channel upgrade required"
-                            }
-                          >
-                            <PhoneCall className={`w-3.5 h-3.5 ${isVoiceUnlocked ? "text-purple-600" : "text-amber-600"}`} />
-                            Voice SDR {isVoiceUnlocked ? "(Retell AI)" : "(Upgrade Required)"}
-                          </span>
-                        )}
-                        {ch === "sms" && (
-                          <span
-                            className={`flex items-center gap-1 ${
-                              isSmsUnlocked ? "text-emerald-700" : "text-amber-700"
-                            }`}
-                            title={isSmsUnlocked ? "SMS Enabled (Twilio)" : "Administrative channel upgrade required"}
-                          >
-                            <MessageSquare className={`w-3.5 h-3.5 ${isSmsUnlocked ? "text-emerald-600" : "text-amber-600"}`} />
-                            SMS {isSmsUnlocked ? "(Twilio)" : "(Upgrade Required)"}
-                          </span>
-                        )}
-                        {ch === "physical_mail" && (
-                          <span
-                            className={`flex items-center gap-1 ${
-                              isMailUnlocked ? "text-rose-700" : "text-amber-700"
-                            }`}
-                            title={isMailUnlocked ? "Direct Mail Enabled (Poplar)" : "Administrative channel upgrade required"}
-                          >
-                            <Send className={`w-3.5 h-3.5 ${isMailUnlocked ? "text-rose-600" : "text-amber-600"}`} />
-                            Direct Mail {isMailUnlocked ? "(Poplar)" : "(Upgrade Required)"}
-                          </span>
-                        )}
-                        {ch === "linkedin" && (
-                          <span
-                            className="flex items-center gap-1 text-[#0077b5]"
-                            title="LinkedIn Assisted Outreach"
-                          >
-                            <Share2 className="w-3.5 h-3.5 text-[#0077b5]" />
-                            LinkedIn (Assisted)
-                          </span>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Last Modified</span>
-                <span className="text-slate-800 font-mono text-[11px]">
-                  {new Date(campaign.updatedAt).toLocaleString()}
-                </span>
-              </div>
+        {/* Tabs Navigation & Body Content */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <Tabs defaultValue="sequence" variant="underline" className="flex-1 flex flex-col min-h-0 space-y-0">
+            <div className="px-5 border-b border-slate-200 bg-white shrink-0">
+              <TabsList className="gap-6 border-b-0">
+                <TabsTrigger value="sequence" className="gap-1.5 py-3">
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Sequence &amp; Steps</span>
+                  <span className="ml-1 text-[11px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 font-semibold">
+                    {campaign.steps.length}
+                  </span>
+                </TabsTrigger>
+                <TabsTrigger value="audience" className="gap-1.5 py-3">
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Audience &amp; Lists</span>
+                  <span className="ml-1 text-[11px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 font-semibold">
+                    {campaign.contacts.length}
+                  </span>
+                </TabsTrigger>
+                <TabsTrigger value="activity" className="gap-1.5 py-3">
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Activity &amp; Outreach</span>
+                  {(campaign.outreaches?.length || 0) > 0 && (
+                    <span className="ml-1 text-[11px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 font-semibold">
+                      {campaign.outreaches?.length || 0}
+                    </span>
+                  )}
+                </TabsTrigger>
+              </TabsList>
             </div>
-          </div>
 
-          {/* Section: Sequence Steps (CampaignStep model) */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                Sequence Steps ({campaign.steps.length})
-              </h4>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
-                  Step ordering
-                </span>
+            {/* Scrollable Tab Content Viewport */}
+            <div className="flex-1 overflow-y-auto p-5 text-xs text-slate-700 min-h-0">
+              {/* Tab 1: Sequence & Steps */}
+              <TabsContent value="sequence" className="space-y-4 m-0 focus-visible:outline-none">
+                {/* Visual Workflow Builder Banner */}
                 {onOpenWorkflowBuilder && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onOpenWorkflowBuilder(campaign)}
-                    className="text-[11px] h-6 px-2 text-agile-red hover:text-agile-red hover:bg-agile-lightorange inline-flex items-center gap-1"
-                  >
-                    <GitBranch className="w-3 h-3" />
-                    <span>Visual Builder</span>
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {campaign.steps.length === 0 ? (
-              <div className="p-4 rounded-lg border border-dashed border-slate-200 text-center text-slate-400 text-xs">
-                No steps configured yet.
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                {campaign.steps.map((step) => {
-                  const isVoice = step.stepType === "voice";
-                  const isWait = step.stepType === "wait";
-                  const isCondition = step.stepType === "condition";
-                  const isSms = step.stepType === "sms";
-                  const isPhysicalMail = step.stepType === "physical_mail";
-                  const isLinkedIn = step.stepType === "linkedin";
-                  const isVoiceUnlocked = channelCapabilities["voice"]?.is_unlocked ?? false;
-
-                  return (
-                    <div
-                      key={step.id}
-                      className="p-3.5 rounded-lg border border-slate-200/80 bg-white shadow-xs space-y-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`w-5 h-5 rounded font-bold text-[10px] flex items-center justify-center ${
-                              isVoice
-                                ? "bg-purple-600 text-white"
-                                : isWait
-                                ? "bg-amber-500 text-white"
-                                : isCondition
-                                ? "bg-indigo-600 text-white"
-                                : isSms
-                                ? "bg-emerald-600 text-white"
-                                : isPhysicalMail
-                                ? "bg-amber-600 text-white"
-                                : isLinkedIn
-                                ? "bg-[#0077b5] text-white"
-                                : "bg-header text-white"
-                            }`}
-                          >
-                            {step.stepNumber}
-                          </span>
-                          <span className="font-semibold text-slate-800 text-xs flex items-center gap-1.5">
-                            {isVoice && <PhoneCall className="w-3.5 h-3.5 text-purple-600" />}
-                            {isWait && <Clock className="w-3.5 h-3.5 text-amber-500" />}
-                            {isCondition && <GitBranch className="w-3.5 h-3.5 text-indigo-500" />}
-                            {isSms && <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />}
-                            {isPhysicalMail && <Send className="w-3.5 h-3.5 text-amber-600" />}
-                            {isLinkedIn && <Share2 className="w-3.5 h-3.5 text-[#0077b5]" />}
-                            {!isVoice && !isWait && !isCondition && !isSms && !isPhysicalMail && !isLinkedIn && (
-                              <Mail className="w-3.5 h-3.5 text-slate-400" />
-                            )}
-                            {step.title || (
-                              isVoice
-                                ? `Step ${step.stepNumber}: AI Voice SDR Call`
-                                : isWait
-                                ? `Wait Delay: ${step.delayDays}d ${step.delayHours}h`
-                                : isCondition
-                                ? `Condition Check: ${step.conditionType || "Prospect Engagement"}`
-                                : isSms
-                                ? `Step ${step.stepNumber}: SMS Outreach`
-                                : isPhysicalMail
-                                ? `Step ${step.stepNumber}: Physical Mail`
-                                : isLinkedIn
-                                ? `Step ${step.stepNumber}: LinkedIn Outreach (Assisted)`
-                                : `Step ${step.stepNumber}: Email Outreach`
-                            )}
-                          </span>
-                        </div>
-                        <span className="text-[10px] text-slate-400">
-                          {isWait
-                            ? `Duration: ${step.delayDays}d ${step.delayHours}h`
-                            : `Delay: ${step.delayDays}d ${step.delayHours}h`}
-                        </span>
+                  <div className="p-3.5 bg-gradient-to-r from-[#fff6f0] to-slate-50 border border-[#ebad8f]/60 rounded-xl flex items-center justify-between gap-3 shadow-xs">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-white border border-[#ebad8f]/70 flex items-center justify-center shrink-0 shadow-xs">
+                        <GitBranch className="w-4 h-4 text-agile-red" />
                       </div>
+                      <div>
+                        <span className="font-semibold text-header block text-xs">Visual Workflow Builder</span>
+                        <p className="text-[11px] text-slate-600">Open full canvas to edit step delays, templates, and branch triggers.</p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => onOpenWorkflowBuilder(campaign)}
+                      className="text-xs bg-white text-header border-slate-200 hover:text-agile-red shrink-0 font-medium shadow-xs"
+                    >
+                      Open Canvas
+                    </Button>
+                  </div>
+                )}
 
-                      {/* Voice SDR Step Details & Entitlement Warning */}
-                      {isVoice && (
-                        <div className="pl-7 space-y-1.5 text-[11px]">
-                          <div className="flex items-center gap-2">
-                            <span className="text-slate-400 font-medium">Provider:</span>
-                            <span className="text-purple-800 font-semibold">Retell AI Voice SDR</span>
-                            <span className="text-slate-300">•</span>
-                            <span className="text-slate-500">Agent: {String(step.config?.agent_type || "Outbound SDR")}</span>
-                          </div>
-                          {!isVoiceUnlocked && (
-                            <div className="mt-2 p-2.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[11px] space-y-1">
-                              <div className="flex items-center gap-1.5 font-semibold text-amber-900">
-                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                                <span>AI Voice SDR Channel Upgrade Required</span>
-                              </div>
-                              <p className="text-[10.5px] text-amber-700 leading-relaxed">
-                                AI Voice SDR calls are configured as Step 1 of this workflow, but live voice calling requires an administrative channel upgrade for this organization.
-                              </p>
-                              <Link
-                                href="/settings/entitlements"
-                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 pt-0.5"
+                {/* Campaign Configuration Summary */}
+                <div className="rounded-xl border border-slate-200/80 p-3.5 bg-slate-50/50 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Campaign Type</span>
+                    <span className="text-slate-800 font-semibold">
+                      {CAMPAIGN_TYPE_LABELS[campaign.type] || campaign.type}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Lifecycle Status</span>
+                    <span className="font-semibold text-header">
+                      {CAMPAIGN_STATUS_LABELS[campaign.status]}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Supported Channels</span>
+                    <span className="text-slate-800 font-medium flex items-center gap-2 flex-wrap justify-end">
+                      {uniqueChannels.map((ch, idx) => {
+                        const isVoiceUnlocked = channelCapabilities["voice"]?.is_unlocked ?? false;
+                        const isSmsUnlocked = channelCapabilities["sms"]?.is_unlocked ?? false;
+                        const isMailUnlocked = channelCapabilities["physical_mail"]?.is_unlocked ?? false;
+
+                        return (
+                          <React.Fragment key={ch}>
+                            {idx > 0 && <span className="text-slate-300">•</span>}
+                            {ch === "email" && (
+                              <span className="flex items-center gap-1 text-slate-700">
+                                <Mail className="w-3.5 h-3.5 text-slate-400" />
+                                Email
+                              </span>
+                            )}
+                            {ch === "voice" && (
+                              <span
+                                className={`flex items-center gap-1 ${
+                                  isVoiceUnlocked ? "text-purple-700" : "text-amber-700"
+                                }`}
+                                title={
+                                  isVoiceUnlocked
+                                    ? "Voice SDR Enabled (Retell AI)"
+                                    : "Administrative channel upgrade required"
+                                }
                               >
-                                <span>Request Administrative Upgrade in Settings</span>
-                                <ExternalLink className="w-3 h-3" />
-                              </Link>
+                                <PhoneCall className={`w-3.5 h-3.5 ${isVoiceUnlocked ? "text-purple-600" : "text-amber-600"}`} />
+                                Voice SDR {isVoiceUnlocked ? "(Retell AI)" : "(Upgrade Required)"}
+                              </span>
+                            )}
+                            {ch === "sms" && (
+                              <span
+                                className={`flex items-center gap-1 ${
+                                  isSmsUnlocked ? "text-emerald-700" : "text-amber-700"
+                                }`}
+                                title={isSmsUnlocked ? "SMS Enabled (Twilio)" : "Administrative channel upgrade required"}
+                              >
+                                <MessageSquare className={`w-3.5 h-3.5 ${isSmsUnlocked ? "text-emerald-600" : "text-amber-600"}`} />
+                                SMS {isSmsUnlocked ? "(Twilio)" : "(Upgrade Required)"}
+                              </span>
+                            )}
+                            {ch === "physical_mail" && (
+                              <span
+                                className={`flex items-center gap-1 ${
+                                  isMailUnlocked ? "text-amber-700" : "text-amber-700"
+                                }`}
+                                title={isMailUnlocked ? "Direct Mail Enabled (Poplar)" : "Administrative channel upgrade required"}
+                              >
+                                <Send className={`w-3.5 h-3.5 ${isMailUnlocked ? "text-amber-600" : "text-amber-600"}`} />
+                                Direct Mail {isMailUnlocked ? "(Poplar Test Sandbox)" : "(Upgrade Required)"}
+                              </span>
+                            )}
+                            {ch === "linkedin" && (
+                              <span
+                                className="flex items-center gap-1 text-[#0077b5]"
+                                title="LinkedIn Assisted Outreach"
+                              >
+                                <Share2 className="w-3.5 h-3.5 text-[#0077b5]" />
+                                LinkedIn (Assisted)
+                              </span>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Last Modified</span>
+                    <span className="text-slate-800 font-mono text-[11px]">
+                      {new Date(campaign.updatedAt).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Sequence Steps List */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      Sequence Steps ({campaign.steps.length})
+                    </h4>
+                    <span className="text-[10px] text-slate-400">
+                      Sequential execution cadence
+                    </span>
+                  </div>
+
+                  {campaign.steps.length === 0 ? (
+                    <div className="p-6 rounded-xl border border-dashed border-slate-200 text-center text-slate-400 text-xs bg-slate-50/50">
+                      No sequence steps configured yet. Open the Visual Workflow Builder to create steps.
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {campaign.steps.map((step) => {
+                        const isVoice = step.stepType === "voice";
+                        const isWait = step.stepType === "wait";
+                        const isCondition = step.stepType === "condition";
+                        const isSms = step.stepType === "sms";
+                        const isPhysicalMail = step.stepType === "physical_mail";
+                        const isLinkedIn = step.stepType === "linkedin";
+                        const isVoiceUnlocked = channelCapabilities["voice"]?.is_unlocked ?? false;
+
+                        return (
+                          <div
+                            key={step.id}
+                            className="p-3.5 rounded-xl border border-slate-200/80 bg-white shadow-xs space-y-2"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`w-5 h-5 rounded font-bold text-[10px] flex items-center justify-center ${
+                                    isVoice
+                                      ? "bg-purple-600 text-white"
+                                      : isWait
+                                      ? "bg-amber-500 text-white"
+                                      : isCondition
+                                      ? "bg-indigo-600 text-white"
+                                      : isSms
+                                      ? "bg-emerald-600 text-white"
+                                      : isPhysicalMail
+                                      ? "bg-amber-600 text-white"
+                                      : isLinkedIn
+                                      ? "bg-[#0077b5] text-white"
+                                      : "bg-header text-white"
+                                  }`}
+                                >
+                                  {step.stepNumber}
+                                </span>
+                                <span className="font-semibold text-slate-800 text-xs flex items-center gap-1.5">
+                                  {isVoice && <PhoneCall className="w-3.5 h-3.5 text-purple-600" />}
+                                  {isWait && <Clock className="w-3.5 h-3.5 text-amber-500" />}
+                                  {isCondition && <GitBranch className="w-3.5 h-3.5 text-indigo-500" />}
+                                  {isSms && <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />}
+                                  {isPhysicalMail && <Send className="w-3.5 h-3.5 text-amber-600" />}
+                                  {isLinkedIn && <Share2 className="w-3.5 h-3.5 text-[#0077b5]" />}
+                                  {!isVoice && !isWait && !isCondition && !isSms && !isPhysicalMail && !isLinkedIn && (
+                                    <Mail className="w-3.5 h-3.5 text-slate-400" />
+                                  )}
+                                  {step.title || (
+                                    isVoice
+                                      ? `Step ${step.stepNumber}: AI Voice SDR Call`
+                                      : isWait
+                                      ? `Wait Delay: ${step.delayDays}d ${step.delayHours}h`
+                                      : isCondition
+                                      ? `Condition Check: ${step.conditionType || "Prospect Engagement"}`
+                                      : isSms
+                                      ? `Step ${step.stepNumber}: SMS Outreach`
+                                      : isPhysicalMail
+                                      ? `Step ${step.stepNumber}: Physical Direct Mail`
+                                      : isLinkedIn
+                                      ? `Step ${step.stepNumber}: LinkedIn Outreach (Assisted)`
+                                      : `Step ${step.stepNumber}: Email Outreach`
+                                  )}
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-400">
+                                {isWait
+                                  ? `Duration: ${step.delayDays}d ${step.delayHours}h`
+                                  : `Delay: ${step.delayDays}d ${step.delayHours}h`}
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      )}
 
-                      {/* Wait Step Details */}
-                      {isWait && (
-                        <div className="pl-7 text-[11px] text-slate-500">
-                          Cadence delay: Sequence pauses for {step.delayDays} day(s) before evaluating conditions or dispatching subsequent touches.
-                        </div>
-                      )}
+                            {/* Voice SDR Step Details & Entitlement Warning */}
+                            {isVoice && (
+                              <div className="pl-7 space-y-1.5 text-[11px]">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-slate-400 font-medium">Provider:</span>
+                                  <span className="text-purple-800 font-semibold">Retell AI Voice SDR</span>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="text-slate-500">Agent: {String(step.config?.agent_type || "Outbound SDR")}</span>
+                                </div>
+                                {!isVoiceUnlocked && (
+                                  <div className="mt-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] space-y-1">
+                                    <div className="flex items-center gap-1.5 font-semibold text-amber-900">
+                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                      <span>AI Voice SDR Channel Upgrade Required</span>
+                                    </div>
+                                    <p className="text-[10.5px] text-amber-700 leading-relaxed">
+                                      AI Voice SDR calls are configured as Step 1 of this workflow, but live voice calling requires an administrative channel upgrade for this organization.
+                                    </p>
+                                    <Link
+                                      href="/settings/entitlements"
+                                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 pt-0.5"
+                                    >
+                                      <span>Request Administrative Upgrade in Settings</span>
+                                      <ExternalLink className="w-3 h-3" />
+                                    </Link>
+                                  </div>
+                                )}
+                              </div>
+                            )}
 
-                      {/* Condition Step Details */}
-                      {isCondition && (
-                        <div className="pl-7 text-[11px] text-slate-500">
-                          Branching rule: Evaluates prospect engagement ({step.conditionType || "email_replied"}) to route responses.
-                        </div>
-                      )}
+                            {/* Wait Step Details */}
+                            {isWait && (
+                              <div className="pl-7 text-[11px] text-slate-500">
+                                Cadence delay: Sequence pauses for {step.delayDays} day(s) before evaluating conditions or dispatching subsequent touches.
+                              </div>
+                            )}
 
-                      {/* SMS Step Details */}
-                      {isSms && (
-                        <div className="pl-7 space-y-1 text-[11px]">
-                          {step.bodyTemplate && (
-                            <div className="pt-1">
-                              <span className="text-slate-400 font-medium block mb-0.5">SMS Body:</span>
-                              <p className="text-slate-600 font-mono text-[10px] bg-slate-50 p-2 rounded border border-slate-200/60 whitespace-pre-wrap">
-                                {step.bodyTemplate}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                            {/* Condition Step Details */}
+                            {isCondition && (
+                              <div className="pl-7 text-[11px] text-slate-500">
+                                Branching rule: Evaluates prospect engagement ({step.conditionType || "email_replied"}) to route responses.
+                              </div>
+                            )}
 
-                      {/* Physical Mail Step Details */}
-                      {isPhysicalMail && (
-                        <div className="pl-7 space-y-2 text-[11px]">
-                          <div className="flex items-center gap-2">
-                            <span className="text-slate-400 font-medium">Provider:</span>
-                            <span className="text-rose-700 font-semibold">Poplar Programmatic Direct Mail</span>
-                            <span className="text-slate-300">•</span>
-                            <span className="text-slate-500">Format: Postcard / Demand Letter</span>
+                            {/* SMS Step Details */}
+                            {isSms && (
+                              <div className="pl-7 space-y-1 text-[11px]">
+                                {step.bodyTemplate && (
+                                  <div className="pt-1">
+                                    <span className="text-slate-400 font-medium block mb-0.5">SMS Body:</span>
+                                    <p className="text-slate-600 font-mono text-[10px] bg-slate-50 p-2 rounded border border-slate-200/60 whitespace-pre-wrap">
+                                      {step.bodyTemplate}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Physical Mail Step Details */}
+                            {isPhysicalMail && (
+                              <div className="pl-7 space-y-2 text-[11px]">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-slate-400 font-medium">Provider:</span>
+                                  <span className="text-amber-800 font-semibold">Poplar Programmatic Direct Mail</span>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                                    Poplar Test Sandbox (Zero Postage Charged)
+                                  </span>
+                                </div>
+                                <div className="p-2.5 rounded-lg bg-amber-50/50 border border-amber-200/60 text-slate-700 space-y-2">
+                                  <p className="text-[10.5px]">
+                                    Direct mail pieces are generated using automated USPS CASS address verification and personalized merge tags.
+                                  </p>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setIsPhysicalMailModalOpen(true)}
+                                    className="text-xs border-amber-300 text-amber-800 hover:bg-amber-100/60 bg-white inline-flex items-center gap-1.5"
+                                  >
+                                    <Send className="w-3 h-3 text-amber-600" />
+                                    <span>Launch Direct Mail Pre-Flight &amp; Preview</span>
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Email Step Details */}
+                            {!isVoice && !isWait && !isCondition && !isSms && !isPhysicalMail && (
+                              <div className="pl-7 space-y-1 text-[11px]">
+                                <div>
+                                  <span className="text-slate-400 font-medium">Subject: </span>
+                                  <span className="text-slate-700 font-mono">
+                                    {step.subjectTemplate || "— (No subject configured)"}
+                                  </span>
+                                </div>
+                                {step.bodyTemplate && (
+                                  <div className="pt-1">
+                                    <span className="text-slate-400 font-medium block mb-0.5">
+                                      Template Content:
+                                    </span>
+                                    <p className="text-slate-600 font-mono text-[10px] bg-slate-50 p-2 rounded border border-slate-200/60 whitespace-pre-wrap">
+                                      {step.bodyTemplate}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
-                          <div className="p-2.5 rounded bg-rose-50/50 border border-rose-200/60 text-slate-700 space-y-1.5">
-                            <p className="text-[10.5px]">
-                              Direct mail pieces are generated using automated USPS CASS address verification and personalized merge tags.
-                            </p>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
+              {/* Tab 2: Audience & Lists */}
+              <TabsContent value="audience" className="space-y-5 m-0 focus-visible:outline-none">
+                {/* Audience Overview Strip */}
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div className="p-3 rounded-xl border border-slate-200 bg-white shadow-xs">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                      Total Enrolled
+                    </span>
+                    <span className="text-base font-bold text-header">
+                      {campaign.contacts.length}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl border border-slate-200 bg-white shadow-xs">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                      Queued
+                    </span>
+                    <span className="text-base font-bold text-slate-700">
+                      {queuedContactsCount}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl border border-slate-200 bg-white shadow-xs">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                      In Progress
+                    </span>
+                    <span className="text-base font-bold text-emerald-700">
+                      {inProgressContactsCount}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Attached Lists Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                        <ListOrdered className="w-3.5 h-3.5 text-agile-red" />
+                        <span>Attached Contact Lists ({attachedLists.length})</span>
+                      </h4>
+                      <span className="text-[10px] text-slate-400">
+                        Reusable audience lists synced to this campaign
+                      </span>
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      onClick={handleOpenAttachListModal}
+                      className="text-xs h-7 inline-flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3 text-slate-500" />
+                      <span>Attach List</span>
+                    </Button>
+                  </div>
+
+                  {attachedLists.length === 0 ? (
+                    <div className="p-4 rounded-xl border border-dashed border-slate-200 text-center space-y-1 bg-slate-50/40">
+                      <p className="text-xs font-medium text-slate-600">
+                        No lists attached to this campaign.
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        Attach a contact list to automatically enroll and sync its members.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {attachedLists.map((list) => (
+                        <div
+                          key={list.id}
+                          className="p-3 rounded-xl border border-slate-200 bg-white flex items-center justify-between gap-2 shadow-xs"
+                        >
+                          <div>
+                            <span className="font-semibold text-slate-800 block text-xs">
+                              {list.name}
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              {list.member_count} member{list.member_count !== 1 ? "s" : ""}
+                              {list.description ? ` • ${list.description}` : ""}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
                             <Button
                               variant="outline"
-                              size="sm"
-                              onClick={() => setIsPhysicalMailModalOpen(true)}
-                              className="text-xs border-rose-300 text-rose-700 hover:bg-rose-100/60 bg-white"
+                              size="xs"
+                              disabled={syncingListId === list.id}
+                              onClick={() => handleSyncList(list.id)}
+                              className="text-xs h-7 px-2 inline-flex items-center gap-1 text-agile-red border-agile-red/30 hover:bg-agile-lightorange"
+                              title="Sync newly added list members into this campaign"
                             >
-                              <Send className="w-3 h-3 mr-1 text-rose-600" />
-                              Launch Direct Mail Pre-Flight & Test Dispatch
+                              <RefreshCw className={`w-3 h-3 ${syncingListId === list.id ? "animate-spin" : ""}`} />
+                              <span>{syncingListId === list.id ? "Syncing..." : "Sync Members"}</span>
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => handleDetachList(list.id)}
+                              className="text-xs h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded"
+                              title="Detach list from campaign"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </Button>
                           </div>
                         </div>
-                      )}
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-                      {/* Email Step Details */}
-                      {!isVoice && !isWait && !isCondition && !isSms && !isPhysicalMail && (
-                        <div className="pl-7 space-y-1 text-[11px]">
+                {/* Enrolled Contacts Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Enrolled Contacts ({campaign.contacts.length})
+                      </h4>
+                      <span className="text-[10px] text-slate-400">
+                        Individual prospects enrolled in this cadence
+                      </span>
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      onClick={handleOpenEnrollModal}
+                      className="text-xs h-7 inline-flex items-center gap-1.5"
+                    >
+                      <UserPlus className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Enroll Contacts</span>
+                    </Button>
+                  </div>
+
+                  {campaign.contacts.length > 0 && (
+                    <Input
+                      placeholder="Search enrolled contacts by name, email, or company..."
+                      value={enrolledSearchQuery}
+                      onChange={(e) => setEnrolledSearchQuery(e.target.value)}
+                      icon={<Search className="w-3.5 h-3.5 text-slate-400" />}
+                      className="h-8 text-xs bg-white"
+                    />
+                  )}
+
+                  {campaign.contacts.length === 0 ? (
+                    <div className="p-6 rounded-xl border border-dashed border-slate-200 text-center space-y-2 bg-slate-50/40">
+                      <Users className="w-6 h-6 text-slate-300 mx-auto" />
+                      <p className="text-xs font-medium text-slate-600">
+                        No contacts enrolled yet.
+                      </p>
+                      <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+                        Click &ldquo;Enroll Contacts&rdquo; above to select and enroll prospects from your CRM leads.
+                      </p>
+                    </div>
+                  ) : filteredEnrolledContacts.length === 0 ? (
+                    <div className="p-4 rounded-xl border border-slate-200 text-center text-xs text-slate-500 bg-slate-50">
+                      No enrolled contacts match &ldquo;{enrolledSearchQuery}&rdquo;.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      {filteredEnrolledContacts.map((contact) => (
+                        <div
+                          key={contact.id}
+                          className="p-3 rounded-xl border border-slate-200/80 bg-white flex items-center justify-between gap-2 shadow-xs hover:border-slate-300 transition-colors"
+                        >
                           <div>
-                            <span className="text-slate-400 font-medium">Subject: </span>
-                            <span className="text-slate-700 font-mono">
-                              {step.subjectTemplate || "— (No subject configured)"}
+                            <span className="font-semibold text-slate-800 block text-xs">
+                              {contact.contactName}
+                            </span>
+                            <span className="font-mono text-[11px] text-slate-500 block">
+                              {contact.contactEmail} • {contact.companyName}
                             </span>
                           </div>
-                          {step.bodyTemplate && (
-                            <div className="pt-1">
-                              <span className="text-slate-400 font-medium block mb-0.5">
-                                Template Content:
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              Step {contact.currentStep}
+                            </span>
+                            <span
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider ${
+                                contact.enrollmentStatus === "completed"
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : contact.enrollmentStatus === "in_progress"
+                                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                                  : contact.enrollmentStatus === "replied"
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  : contact.enrollmentStatus === "bounced"
+                                  ? "bg-rose-50 text-rose-700 border-rose-200"
+                                  : "bg-slate-100 text-slate-600 border-slate-200"
+                              }`}
+                            >
+                              {ENROLLMENT_STATUS_LABELS[contact.enrollmentStatus] || contact.enrollmentStatus}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              disabled={isRemovingContact}
+                              onClick={() => {
+                                setRemoveContactError(null);
+                                setContactToRemove(contact);
+                              }}
+                              className="h-6 w-6 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded"
+                              title="Remove from Campaign"
+                              aria-label={`Remove ${contact.contactName} from campaign`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
+              {/* Tab 3: Activity & Outreach */}
+              <TabsContent value="activity" className="space-y-5 m-0 focus-visible:outline-none">
+                {/* Campaign Performance Metrics Row */}
+                <div className="space-y-2">
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Campaign Performance
+                  </h4>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    <div className="p-3 rounded-xl border border-slate-200 bg-white shadow-xs">
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                        Sent (Live)
+                      </span>
+                      <span className="text-base font-bold text-header">
+                        {campaign.metrics.sent}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl border border-slate-200 bg-white shadow-xs">
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                        Delivered (Verified)
+                      </span>
+                      <span className="text-base font-bold text-header">
+                        {campaign.metrics.delivered}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl border border-slate-200 bg-white shadow-xs">
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                        Simulated (Mock)
+                      </span>
+                      <span className="text-base font-bold text-amber-700">
+                        {campaign.metrics.simulated ?? 0}
+                      </span>
+                    </div>
+                  </div>
+                  {(campaign.metrics.simulated ?? 0) > 0 && (
+                    <p className="text-[10.5px] text-amber-800 bg-amber-50/70 border border-amber-200/70 rounded-lg p-2.5">
+                      ℹ️ <strong>Mock Provider Active:</strong> Simulated sends verify workflow execution safely without transmitting live emails or incurring charges.
+                    </p>
+                  )}
+                </div>
+
+                {/* Sequence Planning Banner */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-bold text-header flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-agile-red" />
+                        <span>Sequence Outreach Planning</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Evaluates eligible queued contacts and generates Step 1 outreach drafts for delivery.
+                      </p>
+                    </div>
+
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={
+                        isExecutingPlanning ||
+                        campaign.status !== "active" ||
+                        queuedContactsCount === 0
+                      }
+                      onClick={handleExecutePlanning}
+                      className="text-xs inline-flex items-center gap-1.5 shadow-xs shrink-0"
+                      title={
+                        campaign.status !== "active"
+                          ? "Activate campaign first to plan execution"
+                          : queuedContactsCount === 0
+                          ? "No queued contacts ready for Step 1"
+                          : "Plan sequence execution"
+                      }
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      <span>{isExecutingPlanning ? "Planning..." : "Plan Outreach"}</span>
+                    </Button>
+                  </div>
+
+                  {campaign.status !== "active" && (
+                    <div className="p-2.5 rounded-lg border border-amber-200/80 bg-amber-50/80 flex items-start gap-2 text-amber-800 text-[11px]">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold">Campaign is currently in {campaign.status} status.</span>
+                        <p className="text-amber-700 mt-0.5">
+                          Activate the sequence using the header button to begin dispatching touches.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {campaign.status === "active" && queuedContactsCount === 0 && (
+                    <div className="p-2.5 rounded-lg border border-slate-200 bg-white text-slate-500 text-[11px]">
+                      All enrolled contacts are already in progress or completed. Enroll new prospects to plan additional touches.
+                    </div>
+                  )}
+                </div>
+
+                {/* Real Outreach Messages List */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                        Outreach Messages ({campaign.outreaches?.length || 0})
+                      </h4>
+                      <span className="text-[10px] text-slate-400">
+                        Touchpoints generated from cadence steps
+                      </span>
+                    </div>
+                  </div>
+
+                  {!campaign.outreaches || campaign.outreaches.length === 0 ? (
+                    <div className="p-6 rounded-xl border border-dashed border-slate-200 text-center space-y-1 bg-slate-50/40">
+                      <Mail className="w-6 h-6 text-slate-300 mx-auto" />
+                      <p className="text-xs text-slate-600 font-medium">
+                        No outreach messages generated yet.
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        When you click &ldquo;Plan Outreach&rdquo; on an active sequence, Step 1 outreach drafts appear here.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                      {campaign.outreaches.map((outreach) => (
+                        <div
+                          key={outreach.id}
+                          className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-xs space-y-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-slate-800 text-xs">
+                                  {outreach.contactName || outreach.recipientEmail}
+                                </span>
+                                {outreach.companyName && (
+                                  <span className="text-[11px] text-slate-400">
+                                    • {outreach.companyName}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="font-mono text-[11px] text-slate-500 block mt-0.5">
+                                To: {outreach.recipientEmail}
                               </span>
-                              <p className="text-slate-600 font-mono text-[10px] bg-slate-50 p-2 rounded border border-slate-200/60 whitespace-pre-wrap">
-                                {step.bodyTemplate}
+                            </div>
+
+                            {/* Status badge */}
+                            {outreach.status === "sent" ? (
+                              outreach.provider?.startsWith("mock") ? (
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider bg-amber-50 text-amber-700 border-amber-200">
+                                  Simulated (Safe Mock)
+                                </span>
+                              ) : outreach.firstDeliveredAt ? (
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider bg-emerald-50 text-emerald-700 border-emerald-200">
+                                  Delivered
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider bg-sky-50 text-sky-700 border-sky-200">
+                                  Sent (Submitted)
+                                </span>
+                              )
+                            ) : (
+                              <span
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider ${
+                                  outreach.status === "sending"
+                                    ? "bg-blue-50 text-blue-700 border-blue-200 animate-pulse"
+                                    : outreach.status === "scheduled"
+                                    ? "bg-purple-50 text-purple-700 border-purple-200"
+                                    : outreach.status === "failed"
+                                    ? "bg-rose-50 text-rose-700 border-rose-200"
+                                    : "bg-slate-100 text-slate-700 border-slate-200"
+                                }`}
+                              >
+                                {outreach.status}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Subject & snippet */}
+                          <div className="text-[11px] bg-slate-50 p-2.5 rounded-lg border border-slate-100 space-y-1">
+                            <div className="flex items-center gap-1 font-medium text-slate-700">
+                              <span className="text-slate-400">
+                                {outreach.channel === "sms" ? "SMS Channel:" : "Subject:"}
+                              </span>
+                              <span>
+                                {outreach.channel === "sms"
+                                  ? "Direct SMS Message"
+                                  : outreach.subject || "(No subject)"}
+                              </span>
+                            </div>
+                            {outreach.body && (
+                              <p className="text-slate-500 line-clamp-2 text-[10.5px]">
+                                {outreach.body}
                               </p>
+                            )}
+                          </div>
+
+                          {/* Provider error message if failed */}
+                          {outreach.error && (
+                            <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[10.5px] flex items-start gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-600" />
+                              <div>
+                                <span className="font-semibold">Delivery Failure:</span> {outreach.error}
+                              </div>
                             </div>
                           )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
 
-          {/* Section: Attached Lists (List-Driven Lead Management) */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <ListOrdered className="w-3.5 h-3.5 text-agile-red" />
-                  <span>Attached Lists ({attachedLists.length})</span>
-                </h4>
-                <span className="text-[10px] text-slate-400">
-                  Reusable audience lists attached to this campaign
-                </span>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleOpenAttachListModal}
-                className="text-xs inline-flex items-center gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5 text-slate-500" />
-                <span>Attach List</span>
-              </Button>
-            </div>
-
-            {attachedLists.length === 0 ? (
-              <div className="p-4 rounded-lg border border-dashed border-slate-200 text-center space-y-1 bg-slate-50/30">
-                <p className="text-xs font-medium text-slate-600">
-                  No lists attached to this campaign.
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  Attach a named contact list to sync its members into this campaign.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {attachedLists.map((list) => (
-                  <div
-                    key={list.id}
-                    className="p-3 rounded-lg border border-slate-200 bg-white flex items-center justify-between gap-2 shadow-xs"
-                  >
-                    <div>
-                      <span className="font-semibold text-slate-800 block text-xs">
-                        {list.name}
-                      </span>
-                      <span className="text-[11px] text-slate-400">
-                        {list.member_count} member{list.member_count !== 1 ? "s" : ""}
-                        {list.description ? ` • ${list.description}` : ""}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={syncingListId === list.id}
-                        onClick={() => handleSyncList(list.id)}
-                        className="text-xs h-7 px-2 inline-flex items-center gap-1 text-agile-red border-agile-red/30 hover:bg-agile-lightorange"
-                        title="Sync newly added list members into this campaign"
-                      >
-                        <RefreshCw className={`w-3 h-3 ${syncingListId === list.id ? "animate-spin" : ""}`} />
-                        <span>{syncingListId === list.id ? "Syncing..." : "Sync New Members"}</span>
-                      </Button>
-
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDetachList(list.id)}
-                        className="text-xs h-7 px-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                        title="Detach list from campaign"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Section: Campaign Contacts (CampaignContact model) & ENROLLMENT WORKFLOW */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Enrolled Audience ({campaign.contacts.length})
-                </h4>
-                <span className="text-[10px] text-slate-400">
-                  {queuedContactsCount} queued • {inProgressContactsCount} in-progress
-                </span>
-              </div>
-
-              {/* Add Contacts / Enroll Contacts Button */}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleOpenEnrollModal}
-                className="text-xs inline-flex items-center gap-1.5"
-              >
-                <UserPlus className="w-3.5 h-3.5 text-slate-500" />
-                <span>Enroll Contacts</span>
-              </Button>
-            </div>
-
-            {campaign.contacts.length === 0 ? (
-              <div className="p-6 rounded-lg border border-dashed border-slate-200 text-center space-y-2 bg-slate-50/30">
-                <Users className="w-6 h-6 text-slate-300 mx-auto" />
-                <p className="text-xs font-medium text-slate-600">
-                  No contacts enrolled yet.
-                </p>
-                <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
-                  Click &ldquo;Enroll Contacts&rdquo; above to select and enroll genuine prospects from your CRM leads.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {campaign.contacts.map((contact) => (
-                  <div
-                    key={contact.id}
-                    className="p-3 rounded-lg border border-slate-200/80 bg-slate-50/50 flex items-center justify-between gap-2"
-                  >
-                    <div>
-                      <span className="font-semibold text-slate-800 block text-xs">
-                        {contact.contactName}
-                      </span>
-                      <span className="font-mono text-[11px] text-slate-500 block">
-                        {contact.contactEmail} • {contact.companyName}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        Step {contact.currentStep}
-                      </span>
-                      <span
-                        className={`text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider ${
-                          contact.enrollmentStatus === "completed"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : contact.enrollmentStatus === "in_progress"
-                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : contact.enrollmentStatus === "replied"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : contact.enrollmentStatus === "bounced"
-                            ? "bg-rose-50 text-rose-700 border-rose-200"
-                            : "bg-slate-100 text-slate-600 border-slate-200"
-                        }`}
-                      >
-                        {ENROLLMENT_STATUS_LABELS[contact.enrollmentStatus] || contact.enrollmentStatus}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={isRemovingContact}
-                        onClick={() => {
-                          setRemoveContactError(null);
-                          setContactToRemove(contact);
-                        }}
-                        className="h-6 w-6 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                        title="Remove from Campaign"
-                        aria-label={`Remove ${contact.contactName} from campaign`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Section: SEQUENCE EXECUTION & OUTREACH ORCHESTRATION */}
-          <div className="space-y-3 border-t border-slate-100 pt-5">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Sequence Execution
-                </h4>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Distinguished from campaign activation. Evaluates eligible queued contacts and generates Step 1 draft outreaches.
-                </p>
-              </div>
-
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={
-                  isExecutingPlanning ||
-                  campaign.status !== "active" ||
-                  queuedContactsCount === 0
-                }
-                onClick={handleExecutePlanning}
-                className="text-xs inline-flex items-center gap-1.5 shadow-xs shrink-0"
-                title={
-                  campaign.status !== "active"
-                    ? "Activate campaign first to plan execution"
-                    : queuedContactsCount === 0
-                    ? "No queued contacts ready for Step 1"
-                    : "Plan sequence execution"
-                }
-              >
-                <Zap className="w-3.5 h-3.5" />
-                <span>{isExecutingPlanning ? "Planning..." : "Plan Outreach"}</span>
-              </Button>
-            </div>
-
-            {campaign.status !== "active" && (
-              <div className="p-3 rounded-lg border border-amber-200/80 bg-amber-50/50 flex items-start gap-2 text-amber-800 text-[11px]">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-semibold">Campaign is {campaign.status}.</span>
-                  <p className="text-amber-700 mt-0.5">
-                    Activate the campaign using the top button before executing sequence outreach.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Section: REAL OUTREACH MESSAGES LIST & SENDING ACTION */}
-          <div className="space-y-3 border-t border-slate-100 pt-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Outreach Messages ({campaign.outreaches?.length || 0})
-                </h4>
-                <p className="text-[10px] text-slate-400">
-                  Database outreach records with delivery status
-                </p>
-              </div>
-            </div>
-
-            {!campaign.outreaches || campaign.outreaches.length === 0 ? (
-              <div className="p-5 rounded-lg border border-dashed border-slate-200 text-center space-y-1 bg-slate-50/20">
-                <Mail className="w-5 h-5 text-slate-300 mx-auto" />
-                <p className="text-xs text-slate-500 font-medium">
-                  No outreach messages generated yet.
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  When you click &ldquo;Plan Outreach&rdquo; on an active campaign, Step 1 outreach drafts will appear here.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-                {campaign.outreaches.map((outreach) => (
-                  <div
-                    key={outreach.id}
-                    className="p-3.5 rounded-lg border border-slate-200 bg-white shadow-xs space-y-2.5"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-slate-800 text-xs">
-                            {outreach.contactName || outreach.recipientEmail}
-                          </span>
-                          {outreach.companyName && (
-                            <span className="text-[11px] text-slate-400">
-                              • {outreach.companyName}
-                            </span>
+                          {/* Simulated Voice Call Control Panel */}
+                          {outreach.channel === "voice" && outreach.status === "sending" && (
+                            <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl space-y-2 mt-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[11px] font-medium text-blue-900 flex items-center gap-1.5">
+                                  <PhoneCall className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+                                  Mock SDR Call In-Flight ({outreach.providerMessageId || "Simulated"})
+                                </span>
+                                <span className="text-[10px] text-blue-700 bg-blue-100 px-2 py-0.5 rounded font-mono font-medium">
+                                  Test Simulation
+                                </span>
+                              </div>
+                              <p className="text-[10.5px] text-blue-800 leading-relaxed">
+                                Outbound live calling is safely disabled. Choose an outcome to complete call simulation and trigger automated follow-up:
+                              </p>
+                              <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  disabled={simulatingOutreachId === outreach.id}
+                                  onClick={() => handleSimulateMockVoiceCompletion(outreach.id, "INTERESTED")}
+                                  className="text-[10.5px] h-6 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1"
+                                >
+                                  <Check className="w-3 h-3" />
+                                  <span>{simulatingOutreachId === outreach.id ? "Completing..." : "Answered (Interested)"}</span>
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  disabled={simulatingOutreachId === outreach.id}
+                                  onClick={() => handleSimulateMockVoiceCompletion(outreach.id, "NOT_INTERESTED")}
+                                  className="text-[10.5px] h-6 px-2 text-slate-700"
+                                >
+                                  Not Interested
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  disabled={simulatingOutreachId === outreach.id}
+                                  onClick={() => handleSimulateMockVoiceCompletion(outreach.id, "NO_ANSWER")}
+                                  className="text-[10.5px] h-6 px-2 text-rose-700"
+                                >
+                                  No Answer
+                                </Button>
+                              </div>
+                            </div>
                           )}
-                        </div>
-                        <span className="font-mono text-[11px] text-slate-500 block mt-0.5">
-                          To: {outreach.recipientEmail}
-                        </span>
-                      </div>
 
-                      {/* Status badge */}
-                      {outreach.status === "sent" ? (
-                        outreach.provider?.startsWith("mock") ? (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider bg-amber-50 text-amber-700 border-amber-200">
-                            Simulated (Safe Mock)
-                          </span>
-                        ) : outreach.firstDeliveredAt ? (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider bg-emerald-50 text-emerald-700 border-emerald-200">
-                            Delivered
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider bg-sky-50 text-sky-700 border-sky-200">
-                            Sent (Submitted)
-                          </span>
-                        )
-                      ) : (
-                        <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded border uppercase tracking-wider ${
-                            outreach.status === "sending"
-                              ? "bg-blue-50 text-blue-700 border-blue-200 animate-pulse"
-                              : outreach.status === "scheduled"
-                              ? "bg-purple-50 text-purple-700 border-purple-200"
-                              : outreach.status === "failed"
-                              ? "bg-rose-50 text-rose-700 border-rose-200"
-                              : "bg-slate-100 text-slate-700 border-slate-200"
-                          }`}
-                        >
-                          {outreach.status}
-                        </span>
-                      )}
+                          {/* Send action */}
+                          <div className="flex items-center justify-between pt-1">
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              {outreach.provider?.startsWith("mock")
+                                ? `Provider: Mock (${outreach.channel === "sms" ? "SMS Sim" : outreach.channel === "voice" ? "Voice Sim" : "Email Sim"})`
+                                : outreach.provider
+                                ? `Provider: ${outreach.provider}`
+                                : `Channel: ${outreach.channel.toUpperCase()}`}
+                              {outreach.sentAt
+                                ? ` • ${outreach.provider?.startsWith("mock") ? "Simulated" : "Sent"} ${new Date(outreach.sentAt).toLocaleTimeString()}`
+                                : ""}
+                              {outreach.firstDeliveredAt
+                                ? ` • Delivered ${new Date(outreach.firstDeliveredAt).toLocaleTimeString()}`
+                                : ""}
+                            </span>
+
+                            {(outreach.status === "draft" || outreach.status === "scheduled") && (
+                              <Button
+                                variant="primary"
+                                size="xs"
+                                disabled={sendingOutreachId === outreach.id}
+                                onClick={() => handleSendOutreach(outreach.id)}
+                                className="text-[11px] h-7 px-2.5 inline-flex items-center gap-1"
+                              >
+                                <Send className="w-3 h-3" />
+                                <span>
+                                  {sendingOutreachId === outreach.id
+                                    ? "Sending..."
+                                    : outreach.channel === "sms"
+                                    ? "Send SMS (Mock)"
+                                    : outreach.channel === "voice"
+                                    ? "Simulate Voice Call"
+                                    : "Send Email"}
+                                </span>
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-
-                    {/* Subject & snippet */}
-                    <div className="text-[11px] bg-slate-50 p-2.5 rounded border border-slate-100 space-y-1">
-                      <div className="flex items-center gap-1 font-medium text-slate-700">
-                        <span className="text-slate-400">
-                          {outreach.channel === "sms" ? "SMS Channel:" : "Subject:"}
-                        </span>
-                        <span>
-                          {outreach.channel === "sms"
-                            ? "Direct SMS Message"
-                            : outreach.subject || "(No subject)"}
-                        </span>
-                      </div>
-                      {outreach.body && (
-                        <p className="text-slate-500 line-clamp-2 text-[10.5px]">
-                          {outreach.body}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Provider error message if failed */}
-                    {outreach.error && (
-                      <div className="p-2 rounded bg-rose-50 border border-rose-200 text-rose-700 text-[10.5px] flex items-start gap-1.5">
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-600" />
-                        <div>
-                          <span className="font-semibold">Delivery Error:</span> {outreach.error}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Simulated Voice Call Control Panel */}
-                    {outreach.channel === "voice" && outreach.status === "sending" && (
-                      <div className="p-2.5 bg-blue-50/70 border border-blue-200/80 rounded-lg space-y-2 mt-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-medium text-blue-900 flex items-center gap-1.5">
-                            <PhoneCall className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
-                            Mock SDR Call In-Flight ({outreach.providerMessageId || "Simulated"})
-                          </span>
-                          <span className="text-[10px] text-blue-700 bg-blue-100 px-2 py-0.5 rounded font-mono font-medium">
-                            Test Simulation
-                          </span>
-                        </div>
-                        <p className="text-[10.5px] text-blue-800 leading-relaxed">
-                          Outbound live calling is safely disabled. Choose an outcome to complete call simulation and trigger automated follow-up:
-                        </p>
-                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            disabled={simulatingOutreachId === outreach.id}
-                            onClick={() => handleSimulateMockVoiceCompletion(outreach.id, "INTERESTED")}
-                            className="text-[10.5px] h-6 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1"
-                          >
-                            <Check className="w-3 h-3" />
-                            <span>{simulatingOutreachId === outreach.id ? "Completing..." : "Simulate Prospect Answered (Interested)"}</span>
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={simulatingOutreachId === outreach.id}
-                            onClick={() => handleSimulateMockVoiceCompletion(outreach.id, "NOT_INTERESTED")}
-                            className="text-[10.5px] h-6 px-2 text-slate-700"
-                          >
-                            Not Interested
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={simulatingOutreachId === outreach.id}
-                            onClick={() => handleSimulateMockVoiceCompletion(outreach.id, "NO_ANSWER")}
-                            className="text-[10.5px] h-6 px-2 text-rose-700"
-                          >
-                            No Answer
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Send action */}
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[10px] text-slate-500 font-mono">
-                        {outreach.provider?.startsWith("mock")
-                          ? `Provider: Mock (${outreach.channel === "sms" ? "Twilio SMS Simulation" : outreach.channel === "voice" ? "Retell Voice Simulation" : "Email Simulation"})`
-                          : outreach.provider
-                          ? `Provider: ${outreach.provider}`
-                          : `Channel: ${outreach.channel.toUpperCase()}`}
-                        {outreach.sentAt
-                          ? ` • ${outreach.provider?.startsWith("mock") ? "Simulated" : "Sent"} ${new Date(outreach.sentAt).toLocaleTimeString()}`
-                          : ""}
-                        {outreach.firstDeliveredAt
-                          ? ` • Delivered ${new Date(outreach.firstDeliveredAt).toLocaleTimeString()}`
-                          : ""}
-                      </span>
-
-                      {(outreach.status === "draft" || outreach.status === "scheduled") && (
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          disabled={sendingOutreachId === outreach.id}
-                          onClick={() => handleSendOutreach(outreach.id)}
-                          className="text-[11px] h-7 px-2.5 inline-flex items-center gap-1"
-                        >
-                          <Send className="w-3 h-3" />
-                          <span>
-                            {sendingOutreachId === outreach.id
-                              ? "Sending..."
-                              : outreach.channel === "sms"
-                              ? "Send SMS (Mock)"
-                              : outreach.channel === "voice"
-                              ? "Simulate Voice Call"
-                              : "Send Email"}
-                          </span>
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Section: Campaign Performance (Strict Data Integrity) */}
-          <div className="space-y-3 border-t border-slate-100 pt-5">
-            <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Campaign Performance
-            </h4>
-
-            {totalOutreachEvents === 0 && (campaign.metrics.simulated ?? 0) === 0 ? (
-              <div className="p-4 rounded-lg border border-dashed border-slate-200 text-center space-y-1 bg-slate-50/30">
-                <p className="text-xs font-medium text-slate-500">
-                  No emails sent yet.
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  Delivery and engagement metrics strictly reflect verified send events from backend.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="p-2.5 rounded-lg border border-slate-200 bg-white">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">
-                      Sent (Live)
-                    </span>
-                    <span className="text-sm font-bold text-header">
-                      {campaign.metrics.sent}
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-lg border border-slate-200 bg-white">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">
-                      Delivered (Verified)
-                    </span>
-                    <span className="text-sm font-bold text-header">
-                      {campaign.metrics.delivered}
-                    </span>
-                  </div>
-                  <div className="p-2.5 rounded-lg border border-slate-200 bg-white">
-                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">
-                      Simulated (Mock)
-                    </span>
-                    <span className="text-sm font-bold text-amber-700">
-                      {campaign.metrics.simulated ?? 0}
-                    </span>
-                  </div>
+                  )}
                 </div>
-                {(campaign.metrics.simulated ?? 0) > 0 && (
-                  <p className="text-[10.5px] text-amber-700 bg-amber-50/60 border border-amber-200/60 rounded p-2">
-                    ℹ️ <strong>Mock Provider Active:</strong> Simulated sends do not transmit real emails over the network or count toward verified deliveries.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
+              </TabsContent>
+            </div>
+          </Tabs>
         </div>
 
         {/* Footer */}

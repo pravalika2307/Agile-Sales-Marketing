@@ -467,6 +467,7 @@ def preview_template_content(
             email="jordan.taylor@example.com",
             job_title="Director of Operations",
             phone="+1 555-0199",
+            is_test=True,
         )
         company = Company(name="Acme Global Solutions")
 

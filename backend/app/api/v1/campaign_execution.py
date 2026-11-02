@@ -16,7 +16,9 @@ from app.schemas.campaign_execution import (
     CampaignExecutionResponse,
     SchedulerTickRequest,
     SchedulerTickResponse,
+    SchedulerStatusResponse,
 )
+from app.core.config import settings
 from app.services.campaign_execution import (
     CampaignNotFoundError,
     InvalidCampaignExecutionStateError,
@@ -72,6 +74,28 @@ async def execute_campaign_endpoint(
     except InvalidCampaignExecutionStateError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return result
+
+
+@router.get(
+    "/scheduler/status",
+    response_model=SchedulerStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get campaign scheduler runtime status",
+    description="Returns current operational status, configuration flags, and database locking mode of the campaign scheduler.",
+)
+async def get_scheduler_status_endpoint(
+    current_org: Organization = Depends(get_current_organization),
+    db: Session = Depends(get_db),
+) -> SchedulerStatusResponse:
+    dialect = db.bind.dialect.name if db.bind else "unknown"
+    return SchedulerStatusResponse(
+        enabled=settings.SCHEDULER_ENABLED,
+        auto_dispatch=settings.SCHEDULER_AUTO_DISPATCH,
+        interval_seconds=settings.SCHEDULER_INTERVAL_SECONDS,
+        batch_size=settings.SCHEDULER_BATCH_SIZE,
+        database_dialect=dialect,
+        status="active" if settings.SCHEDULER_ENABLED else "disabled",
+    )
 
 
 @router.post(

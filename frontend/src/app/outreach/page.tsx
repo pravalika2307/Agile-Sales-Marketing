@@ -3,6 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
+import { PageHeader } from "@/components/layout/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -15,6 +17,9 @@ import {
   TableRow,
   TableHead,
   TableCell,
+  TableLoadingRow,
+  TableEmptyRow,
+  TableErrorRow,
 } from "@/components/ui/table";
 import { Pagination } from "@/components/ui/pagination";
 import { OutreachDetailDrawer } from "@/components/outreach/outreach-detail-drawer";
@@ -224,43 +229,43 @@ export default function OutreachPage() {
     <AppShell>
       <div className="space-y-6">
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight text-header">
-                Outreach
-              </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-agile-lightorange text-agile-red border border-agile-outlinered/30">
-                {records.length} outreach records
-              </span>
-            </div>
-            <p className="text-sm text-secondary-text mt-1">
-              Monitor and manage outbound communication across your sales campaigns.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadRecords}
-              disabled={isLoading}
-              className="text-xs border-slate-200 text-slate-700 hover:bg-slate-50"
-            >
-              <RotateCcw className={`w-3.5 h-3.5 mr-1.5 text-slate-500 ${isLoading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-            <Link href="/campaigns">
+        <PageHeader
+          breadcrumbs={[
+            { label: "Sales", href: "/sales" },
+            { label: "Outreach" },
+          ]}
+          title="Outreach"
+          badge={
+            <Badge variant="coral">
+              {records.length} records
+            </Badge>
+          }
+          description="Monitor and manage outbound communication across your sales campaigns."
+          actions={
+            <>
               <Button
-                variant="outline"
-                className="text-xs border-slate-200 text-slate-700 hover:bg-slate-50"
+                variant="secondary"
+                size="sm"
+                onClick={loadRecords}
+                disabled={isLoading}
+                className="text-xs"
               >
-                <Layers className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
-                View Campaigns
+                <RotateCcw className={`w-3.5 h-3.5 mr-1.5 text-slate-500 ${isLoading ? "animate-spin" : ""}`} />
+                Refresh
               </Button>
-            </Link>
-          </div>
-        </div>
+              <Link href="/campaigns">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="text-xs"
+                >
+                  <Layers className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+                  View Campaigns
+                </Button>
+              </Link>
+            </>
+          }
+        />
 
         {/* Factual Operational Counts (Strictly Raw Database Metrics) */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -351,36 +356,25 @@ export default function OutreachPage() {
 
         {/* Global Empty State: When 0 total database records exist */}
         {records.length === 0 && (
-          <Card className="border-slate-200 shadow-xs bg-white text-center py-16 px-6">
-            <div className="max-w-md mx-auto space-y-4">
-              <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-                <Send className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-header">
-                  No outreach activity yet
-                </h3>
-                <p className="text-sm text-slate-500 mt-1">
-                  Outreach activity will appear here once campaigns begin sending email or initiating voice calls.
-                </p>
-              </div>
-              <div className="flex items-center justify-center gap-3 pt-2">
+          <EmptyState
+            icon={Send}
+            title="No outreach activity yet"
+            description="Outreach activity will appear here once campaigns begin sending email or initiating voice calls."
+            action={
+              <div className="flex items-center justify-center gap-3 pt-1">
                 <Link href="/campaigns">
-                  <Button className="bg-agile-red hover:bg-agile-red/90 text-white font-medium text-xs">
+                  <Button variant="primary" size="sm" className="text-xs">
                     Go to Campaigns
                   </Button>
                 </Link>
                 <Link href="/find-leads">
-                  <Button
-                    variant="outline"
-                    className="border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-medium"
-                  >
+                  <Button variant="secondary" size="sm" className="text-xs">
                     Find Leads
                   </Button>
                 </Link>
               </div>
-            </div>
-          </Card>
+            }
+          />
         )}
 
         {/* Records Present: Search, Filters & Data Table */}
@@ -506,57 +500,21 @@ export default function OutreachPage() {
 
                     <TableBody>
                       {isLoading ? (
-                        <TableRow>
-                          <TableCell
-                            colSpan={8}
-                            className="text-center py-12 text-slate-500 text-xs"
-                          >
-                            <div className="flex items-center justify-center gap-2">
-                              <div className="w-4 h-4 border-2 border-agile-red border-t-transparent rounded-full animate-spin" />
-                              <span>Loading outreach records from live API...</span>
-                            </div>
-                          </TableCell>
-                        </TableRow>
+                        <TableLoadingRow colSpan={8} rows={5} />
                       ) : hasError ? (
-                        <TableRow>
-                          <TableCell
-                            colSpan={8}
-                            className="text-center py-12 text-slate-500 text-xs"
-                          >
-                            <AlertCircle className="w-8 h-8 text-rose-400 mx-auto mb-2" />
-                            Failed to load outreach records from backend API.
-                            <div className="mt-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={loadRecords}
-                                className="text-xs border-slate-200"
-                              >
-                                Retry
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
+                        <TableErrorRow
+                          colSpan={8}
+                          message="Failed to load outreach records from backend API."
+                          onRetry={loadRecords}
+                        />
                       ) : paginatedRecords.length === 0 ? (
-                        <TableRow>
-                          <TableCell
-                            colSpan={8}
-                            className="text-center py-12 text-slate-500 text-xs"
-                          >
-                            <AlertCircle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                            No matching outreach records found.
-                            <div className="mt-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={handleResetFilters}
-                                className="text-xs border-slate-200"
-                              >
-                                Clear search filters
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
+                        <TableEmptyRow
+                          colSpan={8}
+                          title="No matching outreach records found"
+                          description="Try clearing your search query or adjusting your channel and status filters."
+                          actionLabel="Clear Filters"
+                          onAction={handleResetFilters}
+                        />
                       ) : (
                         paginatedRecords.map((item) => {
                           const latestEvent =

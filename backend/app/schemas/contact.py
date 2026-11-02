@@ -27,6 +27,7 @@ class ContactCreate(BaseModel):
     postal_code: Optional[str] = Field(None, max_length=20, description="ZIP or postal code")
     country: Optional[str] = Field("US", max_length=100, description="Country code (default: US)")
     linkedin_profile_url: Optional[str] = Field(None, max_length=500, description="Optional LinkedIn profile URL")
+    is_test: Optional[bool] = Field(False, description="Flag indicating whether this is a test/demo contact")
 
     @field_validator("linkedin_profile_url")
     @classmethod
@@ -62,6 +63,7 @@ class ContactUpdate(BaseModel):
     postal_code: Optional[str] = Field(None, max_length=20)
     country: Optional[str] = Field(None, max_length=100)
     linkedin_profile_url: Optional[str] = Field(None, max_length=500)
+    is_test: Optional[bool] = None
 
     @field_validator("linkedin_profile_url")
     @classmethod
@@ -101,6 +103,7 @@ class ContactResponse(BaseModel):
     postal_code: Optional[str] = None
     country: Optional[str] = "US"
     linkedin_profile_url: Optional[str] = None
+    is_test: bool = False
     created_at: datetime
     updated_at: datetime
     company: Optional[CompanyResponse] = None

@@ -302,17 +302,19 @@ def evaluate_subsequent_step_eligibility(
                 )
 
     # 9. Delay Elapsed Rule
-    sent_time = last_sent_outreach.sent_at or last_sent_outreach.created_at
-    if sent_time.tzinfo is None:
-        sent_time = sent_time.replace(tzinfo=timezone.utc)
-    current_time = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
-    due_time = sent_time + timedelta(days=next_step.delay_days, hours=next_step.delay_hours)
-    if current_time < due_time:
-        return ContactEvaluation(
-            campaign_contact_id=cc_id,
-            result=EvaluationResult.SKIPPED,
-            reason=f"Step {next_step.step_number} delay not elapsed. Due at {due_time.isoformat()} (current: {current_time.isoformat()}).",
-        )
+    is_zero_delay = (getattr(next_step, "delay_days", 0) == 0 and getattr(next_step, "delay_hours", 0) == 0)
+    if not is_zero_delay:
+        sent_time = last_sent_outreach.sent_at or last_sent_outreach.created_at
+        if sent_time.tzinfo is None:
+            sent_time = sent_time.replace(tzinfo=timezone.utc)
+        current_time = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+        due_time = sent_time + timedelta(days=next_step.delay_days, hours=next_step.delay_hours)
+        if current_time < due_time:
+            return ContactEvaluation(
+                campaign_contact_id=cc_id,
+                result=EvaluationResult.SKIPPED,
+                reason=f"Step {next_step.step_number} delay not elapsed. Due at {due_time.isoformat()} (current: {current_time.isoformat()}).",
+            )
 
     # 10. Duplicate Outreach Rule for target step
     has_dup = any(o.status in NON_DUPLICATE_OUTREACH_STATUSES for o in existing_outreaches_for_next_step)

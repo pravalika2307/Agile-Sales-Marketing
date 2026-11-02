@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { AppShell } from "@/components/layout/app-shell";
+import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
 import {
   getHubSpotStatus,
   triggerHubSpotSync,
@@ -338,55 +340,58 @@ export default function IntegrationsPage() {
     <AppShell>
       <div className="space-y-6">
         {/* Top Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">
-              <Layers className="w-4 h-4 text-agile-red" />
-              <span>Integrations &amp; External CRMs</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-              CRM Synchronization
-            </h1>
-            <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-              Connect external CRM platforms into Agile Sales &amp; Marketing. Genuine production records are preserved with tenant isolation and duplicate prevention.
-            </p>
-          </div>
+        <PageHeader
+          breadcrumbs={[
+            { label: "Sales", href: "/sales" },
+            { label: "Integrations" },
+          ]}
+          category={{
+            icon: Layers,
+            label: "Integrations & External CRMs",
+          }}
+          title="CRM Synchronization"
+          description="Connect external CRM platforms into Agile Sales & Marketing. Genuine production records are preserved with tenant isolation and duplicate prevention."
+          actions={
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  fetchStatus();
+                  fetchLinkedInData();
+                  fetchPoplarHealth();
+                }}
+                disabled={isLoading || isSyncing || isLinkedInLoading || isPoplarLoading}
+                className="text-xs"
+                title="Refresh connection status"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading || isLinkedInLoading || isPoplarLoading ? "animate-spin text-[#d7525a]" : "text-slate-500"}`} />
+                <span>Refresh</span>
+              </Button>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                fetchStatus();
-                fetchLinkedInData();
-                fetchPoplarHealth();
-              }}
-              disabled={isLoading || isSyncing || isLinkedInLoading || isPoplarLoading}
-              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50 shadow-xs"
-              title="Refresh connection status"
-            >
-              <RefreshCw className={`w-4 h-4 ${isLoading || isLinkedInLoading || isPoplarLoading ? "animate-spin text-agile-red" : "text-slate-500"}`} />
-              <span>Refresh</span>
-            </button>
-
-            <button
-              id="sync-hubspot-btn"
-              onClick={handleSyncNow}
-              disabled={isSyncing}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-agile-red rounded-lg hover:bg-agile-red/90 transition-all shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSyncing ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Syncing HubSpot...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  <span>Sync Now</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
+              <Button
+                id="sync-hubspot-btn"
+                variant="primary"
+                size="sm"
+                onClick={handleSyncNow}
+                disabled={isSyncing}
+                className="text-xs shadow-xs"
+              >
+                {isSyncing ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    <span>Syncing HubSpot...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                    <span>Sync Now</span>
+                  </>
+                )}
+              </Button>
+            </>
+          }
+        />
 
         {/* Global Error Banner */}
         {error && (

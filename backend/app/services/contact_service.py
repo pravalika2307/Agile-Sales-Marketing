@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.normalization import normalize_email
+from app.core.test_detection import classify_is_test
 from app.models.crm import Company, Contact
 from app.models.lead import Lead
 from app.schemas.contact import ContactCreate, ContactUpdate
@@ -94,6 +95,15 @@ def create_contact(
                 f"Contact with email '{norm_email}' already exists in this organization."
             )
 
+    is_test_flag = classify_is_test(
+        explicit_is_test=getattr(data, "is_test", None),
+        email=norm_email or data.email,
+        first_name=data.first_name,
+        last_name=data.last_name,
+        company_name=None,
+        source=None,
+    )
+
     contact = Contact(
         organization_id=org_id,
         company_id=data.company_id,
@@ -103,6 +113,7 @@ def create_contact(
         phone=data.phone.strip() if data.phone else None,
         job_title=data.job_title.strip() if data.job_title else None,
         lead_status=data.lead_status or "new",
+        is_test=is_test_flag,
     )
     db.add(contact)
     try:
@@ -137,6 +148,7 @@ def list_contacts(
     search: Optional[str] = None,
     lead_status: Optional[str] = None,
     company_id: Optional[uuid.UUID] = None,
+    exclude_test: bool = True,
     skip: int = 0,
     limit: int = 50,
 ) -> Tuple[List[Contact], int]:
@@ -145,6 +157,9 @@ def list_contacts(
     lead_status, and company_id. Returns (contacts, total_count).
     """
     query = db.query(Contact).filter(Contact.organization_id == org_id)
+
+    if exclude_test:
+        query = query.filter(Contact.is_test.is_(False))
 
     if search and search.strip():
         term = f"%{search.strip()}%"

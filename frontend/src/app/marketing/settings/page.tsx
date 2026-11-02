@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -134,20 +135,14 @@ export default function MarketingSettingsPage() {
           </CardHeader>
           <CardContent className="p-4 sm:p-5">
             <form onSubmit={handleSave} className="space-y-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  Client Approval Webhook URL
-                </label>
-                <input
-                  type="url"
-                  value={webhookUrl}
-                  onChange={(e) => setWebhookUrl(e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Sends payload containing post title, campaign ID, client identity, and HMAC security tokens.
-                </p>
-              </div>
+              <Input
+                label="Client Approval Webhook URL"
+                helperText="Sends post title, campaign name, client organization, and secure authorization tokens."
+                type="url"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                className="font-mono text-xs"
+              />
 
               <div className="flex justify-end pt-2">
                 <Button
