@@ -3,6 +3,8 @@
 import * as React from "react";
 import { ContactListItem } from "@/services/contactListService";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/layout/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -148,62 +150,63 @@ export const LeadListsView: React.FC<LeadListsViewProps> = ({
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
       {/* 1. Header Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-header">
-            {isMarketing ? "Audience & Lists" : "Leads"}
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            {isMarketing
-              ? "Review and organize your subscriber audience, segments, and targeted lists."
-              : "Review and organize prospect leads by verified sources, industry segments, and targeted lists."}
-          </p>
-        </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: "Sales", href: "/sales" },
+          { label: isMarketing ? "Audience & Lists" : "Leads" },
+        ]}
+        title={isMarketing ? "Audience & Lists" : "Leads"}
+        description={
+          isMarketing
+            ? "Review and organize your subscriber audience, segments, and targeted lists."
+            : "Review and organize prospect leads by verified sources, industry segments, and targeted lists."
+        }
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onSyncSources}
+              disabled={isSyncingSources}
+              className="text-xs"
+              title="Automatically group existing CRM leads into their respective source and industry lists"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 text-slate-500 ${isSyncingSources ? "animate-spin text-[#d7525a]" : ""}`} />
+              <span>{isSyncingSources ? "Syncing..." : "Sync Sources"}</span>
+            </Button>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onSyncSources}
-            disabled={isSyncingSources}
-            className="text-xs inline-flex items-center gap-1.5 border-slate-200 hover:bg-slate-50"
-            title="Automatically group existing CRM leads into their respective source and industry lists"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${isSyncingSources ? "animate-spin" : ""}`} />
-            <span>{isSyncingSources ? "Syncing..." : "Sync Sources"}</span>
-          </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onImportCsvOpen}
+              className="text-xs"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+              <span>Import CSV</span>
+            </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onImportCsvOpen}
-            className="text-xs inline-flex items-center gap-1.5 border-slate-200 hover:bg-slate-50"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-slate-600" />
-            <span>Import CSV</span>
-          </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onAddLeadOpen}
+              className="text-xs"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+              <span>{isMarketing ? "Add Contact" : "Add Lead"}</span>
+            </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onAddLeadOpen}
-            className="text-xs inline-flex items-center gap-1.5 border-slate-200 hover:bg-slate-50"
-          >
-            <Plus className="w-3.5 h-3.5 text-slate-600" />
-            <span>{isMarketing ? "Add Contact" : "Add Lead"}</span>
-          </Button>
-
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={onCreateListOpen}
-            className="text-xs inline-flex items-center gap-1.5 bg-agile-red hover:bg-agile-red/90 text-white shadow-xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Create List</span>
-          </Button>
-        </div>
-      </div>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onCreateListOpen}
+              className="text-xs shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1.5" />
+              <span>Create List</span>
+            </Button>
+          </>
+        }
+      />
 
       {/* 2. KPI Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -356,44 +359,40 @@ export const LeadListsView: React.FC<LeadListsViewProps> = ({
           ))}
         </div>
       ) : filteredLists.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center space-y-4 shadow-xs">
-          <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
-            <Filter className="w-6 h-6" />
-          </div>
-          <div className="space-y-1 max-w-md mx-auto">
-            <h3 className="text-sm font-bold text-header">
-              {isMarketing ? "No audience lists found" : "No lead lists found"}
-            </h3>
-            <p className="text-xs text-slate-500">
-              {searchQuery
-                ? `No lists matched "${searchQuery}". Try adjusting your search query.`
-                : isMarketing
-                ? "Sync your sources or create your first targeted list to organize your subscriber audience."
-                : "Sync your sources or create your first targeted list to organize your prospect audience."}
-            </p>
-          </div>
-          <div className="flex items-center justify-center gap-2 pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onSyncSources}
-              disabled={isSyncingSources}
-              className="text-xs inline-flex items-center gap-1.5"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${isSyncingSources ? "animate-spin" : ""}`} />
-              <span>Sync Sources</span>
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={onCreateListOpen}
-              className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
-            >
-              <Plus className="w-3.5 h-3.5 mr-1" />
-              <span>Create List</span>
-            </Button>
-          </div>
-        </div>
+        <EmptyState
+          icon={Filter}
+          title={isMarketing ? "No audience lists found" : "No lead lists found"}
+          description={
+            searchQuery
+              ? `No lists matched "${searchQuery}". Try adjusting your search query.`
+              : isMarketing
+              ? "Sync your sources or create your first targeted list to organize your subscriber audience."
+              : "Sync your sources or create your first targeted list to organize your prospect audience."
+          }
+          action={
+            <div className="flex items-center justify-center gap-2 pt-1">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onSyncSources}
+                disabled={isSyncingSources}
+                className="text-xs"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 text-slate-500 ${isSyncingSources ? "animate-spin text-[#d7525a]" : ""}`} />
+                <span>Sync Sources</span>
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={onCreateListOpen}
+                className="text-xs shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                <span>Create List</span>
+              </Button>
+            </div>
+          }
+        />
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 shadow-xs overflow-hidden">
           {filteredLists.map((item, index) => {

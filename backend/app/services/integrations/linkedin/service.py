@@ -382,3 +382,339 @@ class LinkedInIntegrationService:
         self.db.commit()
         logger.info("Disconnected LinkedIn account for organization %s", org.id)
         return True
+
+
+    def get_capabilities(self, org: Organization) -> Dict[str, Any]:
+        """
+        Evaluates LinkedIn API capabilities against granted OAuth scopes and official LinkedIn API policies.
+        Differentiates supported OpenID identity scopes from restricted messaging/invitation endpoints.
+        """
+        status_data = self.get_connection_status(org=org)
+        granted_scopes = set(status_data.get("scopes") or [])
+        connected = status_data.get("connected", False)
+
+        has_profile = "profile" in granted_scopes or "openid" in granted_scopes
+        has_email = "email" in granted_scopes
+        has_org_social = "r_organization_social" in granted_scopes or "w_organization_social" in granted_scopes
+        has_member_social = "w_member_social" in granted_scopes
+
+        capabilities = {
+            "read_profile": {
+                "status": "available" if (connected and has_profile) else "restricted",
+                "scope_required": "openid,profile",
+                "scope_granted": has_profile,
+                "description": "Read authenticated member name, profile picture, and unique ID via OpenID Connect.",
+                "assisted_alternative": None,
+            },
+            "read_email": {
+                "status": "available" if (connected and has_email) else "restricted",
+                "scope_required": "email",
+                "scope_granted": has_email,
+                "description": "Read authenticated member primary email address via OpenID Connect.",
+                "assisted_alternative": None,
+            },
+            "organization_page_info": {
+                "status": "available" if (connected and has_org_social) else "restricted",
+                "scope_required": "r_organization_social",
+                "scope_granted": has_org_social,
+                "description": "Read LinkedIn Company Page data and follower analytics. Requires LinkedIn Community Management API approval.",
+                "assisted_alternative": "Manual company research via direct LinkedIn company page links.",
+            },
+            "publish_content": {
+                "status": "available" if (connected and has_member_social) else "restricted",
+                "scope_required": "w_member_social",
+                "scope_granted": has_member_social,
+                "description": "Publish status updates or articles to LinkedIn feed. Requires LinkedIn Share on LinkedIn product.",
+                "assisted_alternative": "Draft copy provided for 1-click personal posting.",
+            },
+            "connection_invitations": {
+                "status": "unsupported",
+                "scope_required": "Partner API (Recruiter / Sales Navigator)",
+                "scope_granted": False,
+                "description": "Automated invitation dispatch is restricted by LinkedIn anti-spam policies to protect member accounts.",
+                "assisted_alternative": "Personalized 300-character connection notes generated with 1-click copy & profile launch.",
+            },
+            "direct_messages": {
+                "status": "unsupported",
+                "scope_required": "Partner API (Enterprise Messaging)",
+                "scope_granted": False,
+                "description": "Direct 1-to-1 automated InMail requires enterprise LinkedIn partner contract. Standard developer apps are strictly disallowed.",
+                "assisted_alternative": "Full follow-up messages pre-rendered with personalized booking URL for manual dispatch.",
+            },
+            "invitation_acceptance": {
+                "status": "unsupported",
+                "scope_required": "Enterprise Webhook",
+                "scope_granted": False,
+                "description": "Real-time webhook notifications for member connection acceptance are restricted to enterprise partner applications.",
+                "assisted_alternative": "Manual 1-click confirmation tracking in campaign outreach queue.",
+            },
+        }
+
+        return {
+            "configured": status_data.get("configured", False),
+            "connected": connected,
+            "member_id": status_data.get("member_id"),
+            "member_name": status_data.get("member_name"),
+            "granted_scopes": list(granted_scopes),
+            "capabilities": capabilities,
+            "workflow_mode": "assisted",
+            "booking_url": "https://cal.com/agilereceivables/30min",
+            "connection_note_limit": 300,
+        }
+
+    def get_campaign_assisted_queue(self, org: Organization, campaign_id: uuid.UUID) -> Dict[str, Any]:
+        """
+        Retrieves enrolled campaign prospects with pre-rendered, personalized copy-ready
+        connection notes (<=300 chars) and follow-up messages with booking URLs.
+        """
+        import uuid as uuid_mod
+        from urllib.parse import quote_plus
+        from app.models.campaign import Campaign, CampaignContact
+        from app.models.crm import Contact, Company
+        from app.models.outreach import Outreach
+
+        campaign = (
+            self.db.query(Campaign)
+            .filter(Campaign.id == campaign_id, Campaign.organization_id == org.id)
+            .first()
+        )
+        if not campaign:
+            raise ValueError(f"Campaign '{campaign_id}' not found.")
+
+        booking_url = "https://cal.com/agilereceivables/30min"
+
+        from app.services.workflow_service import get_campaign_ordered_steps
+        ordered_steps = get_campaign_ordered_steps(self.db, campaign)
+        li_step = next((s for s in ordered_steps if getattr(s, "step_type", "") == "linkedin"), None)
+        custom_template = getattr(li_step, "body_template", None) if li_step else None
+
+        enrollments = (
+            self.db.query(CampaignContact)
+            .filter(CampaignContact.campaign_id == campaign_id)
+            .order_by(CampaignContact.enrolled_at.asc())
+            .all()
+        )
+
+        items = []
+        pending_count = 0
+        completed_count = 0
+
+        for cc in enrollments:
+            contact = self.db.query(Contact).filter(Contact.id == cc.contact_id).first()
+            if not contact:
+                continue
+            company = self.db.query(Company).filter(Company.id == contact.company_id).first() if contact.company_id else None
+            company_name = company.name if company else (getattr(contact, "company", None) or "your company")
+
+            first_name = contact.first_name or "there"
+            last_name = contact.last_name or ""
+            full_name = f"{first_name} {last_name}".strip()
+
+            from app.models.lead import Lead
+            lead = self.db.query(Lead).filter(Lead.contact_id == contact.id, Lead.organization_id == org.id).first()
+            profile_url = getattr(contact, "linkedin_profile_url", None) or getattr(contact, "linkedin_url", None)
+            if not profile_url and lead:
+                profile_url = getattr(lead, "linkedin_profile_url", None)
+
+            has_profile_url = bool(profile_url)
+            search_query = f"{full_name} {company_name}".strip()
+            search_url = f"https://www.linkedin.com/search/results/all/?keywords={quote_plus(search_query)}"
+            linkedin_url = profile_url if has_profile_url else search_url
+
+            if custom_template and len(custom_template) <= 300:
+                conn_note = custom_template.replace("{first_name}", first_name).replace("{company}", company_name).replace("{booking_link}", booking_url)
+            else:
+                conn_note = f"Hi {first_name}, noticed your leadership at {company_name}. We help revenue teams eliminate payment friction and accelerate collections. Would love to connect: {booking_url}"
+            if len(conn_note) > 300:
+                conn_note = conn_note[:297] + "..."
+
+            followup = (
+                f"Hi {first_name},\n\n"
+                f"Thanks for connecting! I wanted to reach out regarding receivables automation for {company_name}. "
+                f"We help eliminate overdue balances and streamline billing workflows.\n\n"
+                f"Are you open to a brief 15-minute briefing this week? You can book directly: {booking_url}\n\n"
+                f"Best regards,\nAgile Receivables Team"
+            )
+
+            outreach = (
+                self.db.query(Outreach)
+                .filter(Outreach.campaign_contact_id == cc.id, Outreach.channel == "linkedin")
+                .first()
+            )
+            outreach_status = outreach.status if outreach else "pending"
+            outreach_id = outreach.id if outreach else None
+            sent_at = outreach.sent_at if outreach else None
+
+            if outreach_status in ("sent", "delivered", "replied"):
+                completed_count += 1
+            else:
+                pending_count += 1
+
+            items.append({
+                "campaign_contact_id": cc.id,
+                "contact_id": contact.id,
+                "lead_id": lead.id if lead else None,
+                "full_name": full_name,
+                "first_name": first_name,
+                "last_name": last_name,
+                "company_name": company_name,
+                "job_title": contact.job_title,
+                "linkedin_url": linkedin_url,
+                "linkedin_profile_url": profile_url,
+                "has_linkedin_profile_url": has_profile_url,
+                "search_url": search_url,
+                "connection_note": conn_note,
+                "followup_message": followup,
+                "booking_url": booking_url,
+                "outreach_id": outreach_id,
+                "outreach_status": outreach_status,
+                "sent_at": sent_at,
+            })
+
+        return {
+            "campaign_id": campaign_id,
+            "total": len(items),
+            "pending_count": pending_count,
+            "completed_count": completed_count,
+            "items": items,
+        }
+
+    def confirm_assisted_action(
+        self,
+        user: User,
+        org: Organization,
+        campaign_id: uuid.UUID,
+        campaign_contact_id: uuid.UUID,
+        action_type: str = "connection_request",
+        notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Records user's manual confirmation that a LinkedIn connection request or message was dispatched.
+        Creates or updates Outreach record, transitions CampaignContact, and logs an OutreachEvent audit entry.
+        """
+        import uuid as uuid_mod
+        from app.models.campaign import Campaign, CampaignContact
+        from app.models.crm import Contact
+        from app.models.outreach import Outreach, OutreachEvent
+
+        campaign = (
+            self.db.query(Campaign)
+            .filter(Campaign.id == campaign_id, Campaign.organization_id == org.id)
+            .first()
+        )
+        if not campaign:
+            raise ValueError(f"Campaign '{campaign_id}' not found.")
+
+        cc = (
+            self.db.query(CampaignContact)
+            .filter(CampaignContact.id == campaign_contact_id, CampaignContact.campaign_id == campaign_id)
+            .first()
+        )
+        if not cc:
+            raise ValueError(f"Campaign contact '{campaign_contact_id}' not found.")
+
+        contact = self.db.query(Contact).filter(Contact.id == cc.contact_id).first()
+        now = datetime.now(timezone.utc)
+
+        outreach = (
+            self.db.query(Outreach)
+            .filter(Outreach.campaign_contact_id == cc.id, Outreach.channel == "linkedin")
+            .first()
+        )
+
+        if not outreach:
+            outreach = Outreach(
+                organization_id=org.id,
+                campaign_id=campaign_id,
+                contact_id=cc.contact_id,
+                campaign_contact_id=cc.id,
+                channel="linkedin",
+                status="sent",
+                subject="LinkedIn Assisted Outreach",
+                body=f"Assisted {action_type} dispatched via LinkedIn. {notes or ''}".strip(),
+                provider="linkedin_assisted",
+                provider_message_id=f"li_ast_{uuid_mod.uuid4().hex[:12]}",
+                recipient=getattr(contact, "linkedin_url", None) or (f"{contact.first_name} {contact.last_name}" if contact else "Prospect"),
+                sent_at=now,
+            )
+            self.db.add(outreach)
+            self.db.flush()
+        else:
+            outreach.status = "sent"
+            outreach.sent_at = now
+            outreach.provider = "linkedin_assisted"
+
+        cc.enrollment_status = "in_progress"
+        cc.current_step = 1
+
+        event = OutreachEvent(
+            organization_id=org.id,
+            outreach_id=outreach.id,
+            event_type="sent",
+            event_metadata={
+                "mode": "assisted_manual",
+                "action": action_type,
+                "confirmed_by_user_id": str(user.id),
+                "notes": notes,
+            },
+            occurred_at=now,
+        )
+        self.db.add(event)
+        self.db.commit()
+
+        return {
+            "success": True,
+            "outreach_id": outreach.id,
+            "status": outreach.status,
+            "confirmed_at": now,
+            "message": f"Successfully recorded manual {action_type} for prospect.",
+        }
+
+    def update_prospect_linkedin_url(
+        self,
+        org: Organization,
+        campaign_id: uuid.UUID,
+        campaign_contact_id: uuid.UUID,
+        profile_url: str,
+    ) -> Dict[str, Any]:
+        """
+        Update the LinkedIn profile URL for an enrolled prospect from the assisted outreach workspace.
+        Validates the URL, normalizes it, and syncs across Contact and associated Lead.
+        """
+        from app.core.normalization import normalize_linkedin_profile_url
+        from app.models.campaign import CampaignContact
+        from app.models.crm import Contact
+        from app.models.lead import Lead
+
+        normalized_url = normalize_linkedin_profile_url(profile_url)
+        if not normalized_url:
+            raise ValueError("A valid LinkedIn profile URL is required.")
+
+        cc = (
+            self.db.query(CampaignContact)
+            .filter(CampaignContact.id == campaign_contact_id, CampaignContact.campaign_id == campaign_id)
+            .first()
+        )
+        if not cc:
+            raise ValueError(f"Campaign contact '{campaign_contact_id}' not found.")
+
+        contact = self.db.query(Contact).filter(Contact.id == cc.contact_id, Contact.organization_id == org.id).first()
+        if not contact:
+            raise ValueError(f"Contact '{cc.contact_id}' not found.")
+
+        contact.linkedin_profile_url = normalized_url
+
+        lead = self.db.query(Lead).filter(Lead.contact_id == contact.id, Lead.organization_id == org.id).first()
+        if lead:
+            lead.linkedin_profile_url = normalized_url
+
+        self.db.commit()
+
+        return {
+            "success": True,
+            "campaign_contact_id": cc.id,
+            "contact_id": contact.id,
+            "linkedin_profile_url": normalized_url,
+            "message": "Successfully updated LinkedIn profile URL.",
+        }
+

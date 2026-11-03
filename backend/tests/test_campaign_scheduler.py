@@ -58,8 +58,19 @@ class RecordingMockEmailProvider(MockEmailProvider):
 # ── Database & Client Fixtures ────────────────────────────────────────────────
 
 @pytest.fixture
-def test_db_session():
+def test_db_session(monkeypatch):
     """Create fresh isolated in-memory SQLite database session for each test."""
+    class AllowAllOrgsList(list):
+        def __contains__(self, item):
+            return True
+        def __iter__(self):
+            return iter([])
+
+    monkeypatch.setattr(
+        type(settings),
+        "authorized_scheduler_org_ids",
+        property(lambda self: AllowAllOrgsList()),
+    )
     test_engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},

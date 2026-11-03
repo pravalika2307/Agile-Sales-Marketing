@@ -565,3 +565,63 @@ async def test_batch_lead_import(test_db_session):
         assert data_b["imported_count"] == 1
         assert data_b["skipped_duplicate_count"] == 0
 
+@pytest.mark.asyncio
+async def test_create_lead_with_minimal_fields_and_edit_later(test_db_session):
+    """Test creating a lead with only name, phone, and company (no email), and later adding email and LinkedIn."""
+    async with make_client() as client:
+        token = await register_tenant(client, "edit_lead_test@test.com", "Edit Lead Org")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. Create with minimal fields (no email, no linkedin, no job title)
+        create_payload = {
+            "first_name": "Hank",
+            "last_name": "Schrader",
+            "company_name": "Schrader Enterprises",
+            "phone": "+1 555-0199",
+            "source": "manual",
+        }
+        res_create = await client.post("/api/v1/leads", json=create_payload, headers=headers)
+        assert res_create.status_code == 201
+        lead = res_create.json()
+        lead_id = lead["id"]
+        assert lead["first_name"] == "Hank"
+        assert lead["last_name"] == "Schrader"
+        assert lead["phone"] == "+1 555-0199"
+        assert lead["email"] is None
+        assert lead["job_title"] is None
+        assert lead["linkedin_profile_url"] is None
+
+        # 2. Update lead with added details: email, job_title, linkedin_profile_url, location
+        update_payload = {
+            "email": "hank.schrader@dea.gov",
+            "job_title": "Special Agent in Charge",
+            "linkedin_profile_url": "https://www.linkedin.com/in/hank-schrader-asac/?trk=feed",
+            "city": "Albuquerque",
+            "state": "NM",
+        }
+        res_patch = await client.patch(f"/api/v1/leads/{lead_id}", json=update_payload, headers=headers)
+        assert res_patch.status_code == 200
+        updated = res_patch.json()
+
+        # 3. Verify untouched fields are preserved, and new fields are populated and normalized
+        assert updated["first_name"] == "Hank"
+        assert updated["last_name"] == "Schrader"
+        assert updated["phone"] == "+1 555-0199"
+        assert updated["company_name"] == "Schrader Enterprises"
+        assert updated["email"] == "hank.schrader@dea.gov"
+        assert updated["job_title"] == "Special Agent in Charge"
+        assert updated["linkedin_profile_url"] == "https://www.linkedin.com/in/hank-schrader-asac"
+        assert updated["city"] == "Albuquerque"
+        assert updated["state"] == "NM"
+
+        # 4. Verify linked Contact exists and is synchronized
+        assert updated["contact_id"] is not None
+        contact_id = updated["contact_id"]
+        res_contact = await client.get(f"/api/v1/contacts/{contact_id}", headers=headers)
+        assert res_contact.status_code == 200
+        contact = res_contact.json()
+        assert contact["first_name"] == "Hank"
+        assert contact["email"] == "hank.schrader@dea.gov"
+        assert contact["phone"] == "+1 555-0199"
+        assert contact["job_title"] == "Special Agent in Charge"
+        assert contact["linkedin_profile_url"] == "https://www.linkedin.com/in/hank-schrader-asac"

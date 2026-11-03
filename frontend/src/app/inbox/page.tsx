@@ -73,6 +73,7 @@ export default function SupportInboxPage() {
   const [reviewNotesInput, setReviewNotesInput] = useState("");
   const [savingReview, setSavingReview] = useState(false);
   const [reviewSuccess, setReviewSuccess] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   const loadData = async () => {
     try {
@@ -152,12 +153,13 @@ export default function SupportInboxPage() {
       setLoadingDetail(true);
       setSelectedEmail(null);
       setReviewSuccess(null);
+      setReviewError(null);
       const detail = await getInboundEmailDetail(email.id);
       setSelectedEmail(detail);
       setReviewStatusInput((detail.manual_review_status as any) || "reviewed");
       setReviewNotesInput(detail.review_notes || "");
     } catch (err: any) {
-      alert(err.message || "Failed to load email details.");
+      setError(err.message || "Failed to load email details.");
     } finally {
       setLoadingDetail(false);
     }
@@ -168,6 +170,7 @@ export default function SupportInboxPage() {
     try {
       setSavingReview(true);
       setReviewSuccess(null);
+      setReviewError(null);
       const updated = await updateManualReview(selectedEmail.id, {
         status: reviewStatusInput,
         review_notes: reviewNotesInput,
@@ -179,7 +182,7 @@ export default function SupportInboxPage() {
         prev.map((e) => (e.id === updated.id ? { ...e, manual_review_status: updated.manual_review_status } : e))
       );
     } catch (err: any) {
-      alert(err.message || "Failed to save review status.");
+      setReviewError(err.message || "Failed to save review status.");
     } finally {
       setSavingReview(false);
     }
@@ -588,7 +591,7 @@ export default function SupportInboxPage() {
           footer={
             <div className="flex items-center justify-between w-full">
               <span className="text-xs text-slate-400">
-                Tenant: Scoped strictly to your organization
+                Organization: Scoped strictly to your workspace
               </span>
               <Button variant="outline" size="sm" onClick={() => setSelectedEmail(null)}>
                 Close
@@ -700,6 +703,13 @@ export default function SupportInboxPage() {
                   </div>
                 )}
 
+                {reviewError && (
+                  <div className="p-2 bg-rose-50 text-rose-800 border border-rose-200 rounded text-xs flex items-center gap-1.5" role="alert">
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                    <span>{reviewError}</span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-medium text-slate-700 mb-1">
@@ -737,9 +747,10 @@ export default function SupportInboxPage() {
                     size="sm"
                     onClick={handleSaveReview}
                     disabled={savingReview}
+                    isLoading={savingReview}
                     className="text-xs bg-agile-red hover:bg-[#c0434b] text-white"
                   >
-                    {savingReview ? "Saving..." : "Save Review Decision"}
+                    Save Review Decision
                   </Button>
                 </div>
               </div>

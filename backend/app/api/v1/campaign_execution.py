@@ -16,7 +16,11 @@ from app.schemas.campaign_execution import (
     CampaignExecutionResponse,
     SchedulerTickRequest,
     SchedulerTickResponse,
+    SchedulerStatusResponse,
+    HeldOutreachItem,
+    HeldOutreachResolveResponse,
 )
+from app.core.config import settings
 from app.services.campaign_execution import (
     CampaignNotFoundError,
     InvalidCampaignExecutionStateError,
@@ -74,6 +78,28 @@ async def execute_campaign_endpoint(
     return result
 
 
+@router.get(
+    "/scheduler/status",
+    response_model=SchedulerStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get campaign scheduler runtime status",
+    description="Returns current operational status, configuration flags, and database locking mode of the campaign scheduler.",
+)
+async def get_scheduler_status_endpoint(
+    current_org: Organization = Depends(get_current_organization),
+    db: Session = Depends(get_db),
+) -> SchedulerStatusResponse:
+    dialect = db.bind.dialect.name if db.bind else "unknown"
+    return SchedulerStatusResponse(
+        enabled=settings.SCHEDULER_ENABLED,
+        auto_dispatch=settings.SCHEDULER_AUTO_DISPATCH,
+        interval_seconds=settings.SCHEDULER_INTERVAL_SECONDS,
+        batch_size=settings.SCHEDULER_BATCH_SIZE,
+        database_dialect=dialect,
+        status="active" if settings.SCHEDULER_ENABLED else "disabled",
+    )
+
+
 @router.post(
     "/scheduler/tick",
     response_model=SchedulerTickResponse,
@@ -108,6 +134,7 @@ async def scheduler_tick_endpoint(
         dispatched_count=result.dispatched_count,
         skipped_count=result.skipped_count,
         halted_count=result.halted_count,
+        held_count=result.held_count,
         error_count=result.error_count,
         details=result.details,
     )
@@ -149,8 +176,74 @@ async def advance_campaign_steps_endpoint(
         dispatched_count=result.dispatched_count,
         skipped_count=result.skipped_count,
         halted_count=result.halted_count,
+        held_count=result.held_count,
         error_count=result.error_count,
         details=result.details,
     )
+
+
+@router.get(
+    "/scheduler/held",
+    response_model=list[HeldOutreachItem],
+    status_code=status.HTTP_200_OK,
+    summary="List held campaign steps requiring manual review",
+    description="Returns all campaign steps in the tenant organization that are held due to exceeding maximum overdue staleness.",
+)
+async def list_held_outreaches_endpoint(
+    current_org: Organization = Depends(get_current_organization),
+    db: Session = Depends(get_db),
+) -> list[HeldOutreachItem]:
+    service = CampaignSchedulerService(db=db)
+    held_items = service.list_held_outreaches(org_id=current_org.id)
+    return [HeldOutreachItem(**item) for item in held_items]
+
+
+@router.post(
+    "/scheduler/held/{outreach_id}/approve",
+    response_model=HeldOutreachResolveResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Approve and dispatch a held campaign step",
+    description="Authorized resolution approving a held outreach step, triggering immediate provider delivery and sequence progression.",
+)
+async def approve_held_outreach_endpoint(
+    outreach_id: uuid.UUID,
+    current_org: Organization = Depends(get_current_organization),
+    db: Session = Depends(get_db),
+) -> HeldOutreachResolveResponse:
+    service = CampaignSchedulerService(db=db)
+    try:
+        res = service.resolve_held_outreach(
+            org_id=current_org.id,
+            outreach_id=outreach_id,
+            action="approve",
+        )
+        return HeldOutreachResolveResponse(**res)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post(
+    "/scheduler/held/{outreach_id}/dismiss",
+    response_model=HeldOutreachResolveResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Dismiss and cancel a held campaign step",
+    description="Authorized resolution dismissing a held outreach step, cancelling it without sending external communication.",
+)
+async def dismiss_held_outreach_endpoint(
+    outreach_id: uuid.UUID,
+    current_org: Organization = Depends(get_current_organization),
+    db: Session = Depends(get_db),
+) -> HeldOutreachResolveResponse:
+    service = CampaignSchedulerService(db=db)
+    try:
+        res = service.resolve_held_outreach(
+            org_id=current_org.id,
+            outreach_id=outreach_id,
+            action="dismiss",
+        )
+        return HeldOutreachResolveResponse(**res)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
 
 

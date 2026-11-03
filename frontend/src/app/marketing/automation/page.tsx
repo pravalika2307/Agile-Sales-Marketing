@@ -92,7 +92,7 @@ export default function MarketingAutomationPage() {
             </CardHeader>
             <CardContent className="p-4 pt-1 text-xs text-slate-500">
               <p>
-                Triggers when a campaign post is reviewed from the Client Approval Queue, sending authorization emails and signing payloads via n8n.
+                Triggers when a campaign post is reviewed from the Client Approval Queue, notifying stakeholders and automating delivery via n8n.
               </p>
               <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
                 <span>Webhook: POST /n8n-approval</span>

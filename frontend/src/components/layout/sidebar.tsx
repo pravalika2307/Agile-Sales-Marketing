@@ -36,7 +36,7 @@ export interface NavItem {
 
 export const salesNavigationItems: NavItem[] = [
   { name: "Dashboard", href: "/sales", icon: LayoutDashboard },
-  { name: "Find Leads", href: "/sales/find-leads", icon: UserSearch, badge: "Active" },
+  { name: "Find Leads", href: "/sales/find-leads", icon: UserSearch },
   { name: "Leads", href: "/sales/leads", icon: Users },
   { name: "Campaigns", href: "/sales/campaigns", icon: Send },
   { name: "Outreach", href: "/sales/outreach", icon: PhoneCall },
@@ -46,7 +46,7 @@ export const salesNavigationItems: NavItem[] = [
 ];
 
 export const marketingNavigationItems: NavItem[] = [
-  { name: "Dashboard", href: "/marketing", icon: LayoutDashboard, badge: "Active" },
+  { name: "Dashboard", href: "/marketing", icon: LayoutDashboard },
   { name: "Campaigns", href: "/marketing/campaigns", icon: Send },
   { name: "Content Calendar", href: "/marketing/content-calendar", icon: Calendar },
   { name: "Social Media", href: "/marketing/social-media", icon: Share2 },
@@ -58,7 +58,6 @@ export const secondaryNavigationItems: NavItem[] = [
   { name: "Channels & Plans", href: "/settings/entitlements", icon: ShieldCheck },
   { name: "Admin Upgrades", href: "/admin/upgrades", icon: ShieldAlert },
   { name: "Integrations", href: "/sales/integrations", icon: Layers },
-  { name: "Settings", href: "/sales/settings", icon: Settings },
 ];
 
 export interface SidebarProps {

@@ -56,6 +56,7 @@ async def list_contacts(
     search: Optional[str] = Query(None, description="Search across first name, last name, or email"),
     lead_status: Optional[str] = Query(None, description="Filter by lead status"),
     company_id: Optional[uuid.UUID] = Query(None, description="Filter by company ID"),
+    exclude_test: bool = Query(True, description="Exclude test and QA contacts from operational views"),
     skip: int = Query(0, ge=0, description="Offset"),
     limit: int = Query(50, ge=1, le=500, description="Page size limit"),
     current_org: Organization = Depends(get_current_organization),
@@ -67,6 +68,7 @@ async def list_contacts(
         search=search,
         lead_status=lead_status,
         company_id=company_id,
+        exclude_test=exclude_test,
         skip=skip,
         limit=limit,
     )

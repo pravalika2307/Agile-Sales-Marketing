@@ -23,6 +23,7 @@ export interface ColumnMapping {
   state: number;
   postal_code: number;
   country: number;
+  linkedin_profile_url: number;
 }
 
 export const DEFAULT_COLUMN_MAPPING: ColumnMapping = {
@@ -39,6 +40,7 @@ export const DEFAULT_COLUMN_MAPPING: ColumnMapping = {
   state: -1,
   postal_code: -1,
   country: -1,
+  linkedin_profile_url: -1,
 };
 
 export function parseCSV(csvText: string): ParsedCSVData {
@@ -163,6 +165,17 @@ export function autoDetectColumnMapping(headers: string[]): ColumnMapping {
       mapping.postal_code = idx;
     } else if (mapping.country === -1 && (norm === "country" || norm === "nation")) {
       mapping.country = idx;
+    } else if (
+      mapping.linkedin_profile_url === -1 &&
+      (norm === "linkedin" ||
+        norm === "linkedinurl" ||
+        norm === "linkedinprofile" ||
+        norm === "profileurl" ||
+        norm === "liprofile" ||
+        norm === "linkedinprofileurl" ||
+        norm === "linkedinlink")
+    ) {
+      mapping.linkedin_profile_url = idx;
     }
   });
 

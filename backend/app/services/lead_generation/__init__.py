@@ -25,6 +25,7 @@ from app.services.lead_generation.service import (
     list_leads,
     select_leads,
     update_lead_qualification,
+    update_lead,
 )
 
 __all__ = [
@@ -43,6 +44,7 @@ __all__ = [
     "get_lead",
     "DuplicateLeadError",
     "create_lead",
+    "update_lead",
     "delete_lead",
     "bulk_update_lead_status",
     "update_lead_qualification",

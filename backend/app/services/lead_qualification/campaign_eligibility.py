@@ -104,11 +104,30 @@ def check_lead_campaign_eligibility(
                 f"Contact is already enrolled in this campaign (status: '{existing_enrollment.enrollment_status}')."
             )
 
-    # 5. Contact / Email Availability Check
-    if not lead.email and not (contact and contact.email):
-        suppression_reasons.append("Lead does not have an email address recorded for campaign communication.")
+    # 5. Channel Availability Check
+    is_linkedin_campaign = False
+    if getattr(campaign, "type", "") == "linkedin":
+        is_linkedin_campaign = True
+    elif campaign.workflow_config and isinstance(campaign.workflow_config, dict):
+        nodes = campaign.workflow_config.get("nodes", [])
+        if any(n.get("type") in ("linkedin", "linkedinNode") for n in nodes if isinstance(n, dict)):
+            is_linkedin_campaign = True
+
+    has_li_url = bool(getattr(lead, "linkedin_profile_url", None) or (contact and getattr(contact, "linkedin_profile_url", None)))
+
+    if is_linkedin_campaign:
+        if has_li_url:
+            reasons.append("LinkedIn profile URL is available for assisted outreach.")
+        else:
+            reasons.append("Notice: Lead is missing a LinkedIn profile URL (manual lookup will be required in workspace).")
+        # For LinkedIn campaigns, absence of email is non-fatal if LinkedIn or name is present
+        if not lead.email and not (contact and contact.email) and not has_li_url:
+            suppression_reasons.append("Lead has neither an email address nor a LinkedIn profile URL recorded.")
     else:
-        reasons.append("Valid communication channel (email) is present.")
+        if not lead.email and not (contact and contact.email):
+            suppression_reasons.append("Lead does not have an email address recorded for campaign communication.")
+        else:
+            reasons.append("Valid communication channel (email) is present.")
 
     is_eligible = len(suppression_reasons) == 0 and not already_enrolled
 

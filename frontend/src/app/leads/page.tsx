@@ -16,9 +16,12 @@ import {
   TableRow,
   TableHead,
   TableCell,
+  TableLoadingRow,
+  TableEmptyRow,
 } from "@/components/ui/table";
 import { Pagination } from "@/components/ui/pagination";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ConfirmModal } from "@/components/ui/modal";
+import { FormSection } from "@/components/ui/form-section";
 import { LeadDetailDrawer } from "@/components/leads/lead-detail-drawer";
 import { LeadListsView } from "@/components/leads/lead-lists-view";
 import { LeadListDetailView } from "@/components/leads/lead-list-detail-view";
@@ -30,11 +33,13 @@ import {
   bulkUpdateLeadStatus,
   createBackendLead,
   deleteLead,
+  fetchCRMLeadById,
   fetchCRMLeads,
   filterCRMLeads,
   importLeadsBatch,
   LeadImportRow,
   LeadImportResponse,
+  updateBackendLead,
 } from "@/services/crmLeadService";
 import {
   fetchCampaigns,
@@ -68,6 +73,7 @@ import {
   Send,
   Eye,
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   FileSpreadsheet,
   FileCheck,
@@ -80,6 +86,7 @@ import {
   RefreshCw,
   ArrowLeft,
   ListOrdered,
+  Edit,
 } from "lucide-react";
 import { useAppMode } from "@/contexts/AppModeContext";
 
@@ -92,6 +99,7 @@ function LeadsPageContent() {
 
   // Active view: List detail if listId is present in URL or state
   const urlListId = searchParams.get("listId");
+  const urlLeadId = searchParams.get("leadId");
   const [selectedListId, setSelectedListId] = React.useState<string | null>(urlListId);
   const [viewMode, setViewMode] = React.useState<"lists" | "all_leads">("lists");
 
@@ -102,6 +110,22 @@ function LeadsPageContent() {
       setViewMode("lists");
     }
   }, [urlListId]);
+
+  // Open lead detail drawer if leadId is passed in URL
+  React.useEffect(() => {
+    if (urlLeadId) {
+      setViewMode("all_leads");
+      fetchCRMLeadById(urlLeadId)
+        .then((lead) => {
+          if (lead) {
+            setInspectedLead(lead);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to load lead by ID from URL parameter:", err);
+        });
+    }
+  }, [urlLeadId]);
 
   // Lists state
   const [lists, setLists] = React.useState<ContactListItem[]>([]);
@@ -141,6 +165,35 @@ function LeadsPageContent() {
   const [newListDesc, setNewListDesc] = React.useState("");
   const [isCreatingList, setIsCreatingList] = React.useState(false);
   const [createListError, setCreateListError] = React.useState<string | null>(null);
+  const [newListNameError, setNewListNameError] = React.useState<string | null>(null);
+
+  // Field-level errors for manual lead creation
+  const [firstNameError, setFirstNameError] = React.useState<string | null>(null);
+  const [companyNameError, setCompanyNameError] = React.useState<string | null>(null);
+
+  // Edit Lead Modal State
+  const [isEditLeadModalOpen, setIsEditLeadModalOpen] = React.useState(false);
+  const [leadToEdit, setLeadToEdit] = React.useState<CRMLead | null>(null);
+  const [editLeadForm, setEditLeadForm] = React.useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    companyName: "",
+    companyDomain: "",
+    jobTitle: "",
+    industry: "",
+    companySize: "",
+    city: "",
+    state: "",
+    country: "",
+    linkedinProfileUrl: "",
+    temperature: "UNASSESSED" as CRMLeadTemperature,
+    qualificationStatus: "new" as "new" | "qualified" | "disqualified" | "reviewed",
+    qualificationReason: "",
+  });
+  const [isSavingLead, setIsSavingLead] = React.useState(false);
+  const [editLeadError, setEditLeadError] = React.useState<string | null>(null);
 
   // Edit List Modal State
   const [listToEdit, setListToEdit] = React.useState<ContactListItem | null>(null);
@@ -259,6 +312,7 @@ function LeadsPageContent() {
     companyName: "",
     jobTitle: "",
     industry: "Financial Services",
+    linkedinProfileUrl: "",
     temperature: "UNASSESSED" as CRMLeadTemperature,
   });
 
@@ -347,9 +401,10 @@ function LeadsPageContent() {
   const handleCreateList = async () => {
     const trimmed = newListName.trim();
     if (!trimmed) {
-      setCreateListError("Please enter a list name.");
+      setNewListNameError("Please enter a list name to continue.");
       return;
     }
+    setNewListNameError(null);
     setIsCreatingList(true);
     setCreateListError(null);
     try {
@@ -415,14 +470,22 @@ function LeadsPageContent() {
 
   // ── Create Lead Handler ───────────────────────────────────────────────────
   const handleCreateManualLead = async () => {
-    if (!newLeadForm.firstName.trim() || !newLeadForm.companyName.trim()) {
-      setCreateLeadError("First name and Company name are required.");
-      return;
+    setFirstNameError(null);
+    setCompanyNameError(null);
+    setCreateLeadError(null);
+
+    let hasError = false;
+    if (!newLeadForm.firstName.trim()) {
+      setFirstNameError("First name is required.");
+      hasError = true;
     }
-    if (!newLeadForm.email.trim()) {
-      setCreateLeadError("Email is required.");
-      return;
+    if (!newLeadForm.companyName.trim()) {
+      setCompanyNameError("Company name is required.");
+      hasError = true;
     }
+    if (hasError) return;
+
+    // Contact fields (email, phone, linkedinProfileUrl) are optional to support minimal creation
     setIsCreatingLead(true);
     setCreateLeadError(null);
     try {
@@ -437,6 +500,7 @@ function LeadsPageContent() {
         companyName: "",
         jobTitle: "",
         industry: "Financial Services",
+        linkedinProfileUrl: "",
         temperature: "UNASSESSED",
       });
       // Re-sync sources to organize into "Manually Added Leads"
@@ -446,6 +510,120 @@ function LeadsPageContent() {
       setCreateLeadError(err instanceof Error ? err.message : "Failed to create lead.");
     } finally {
       setIsCreatingLead(false);
+    }
+  };
+
+  // ── Edit Lead Handlers ─────────────────────────────────────────────────────
+  const handleOpenEditLeadModal = (lead: CRMLead) => {
+    setLeadToEdit(lead);
+    setEditLeadForm({
+      firstName: lead.firstName || "",
+      lastName: lead.lastName || "",
+      email: lead.email === "—" ? "" : lead.email,
+      phone: lead.phone || "",
+      companyName: lead.companyName === "—" ? "" : lead.companyName,
+      companyDomain: lead.companyDomain || "",
+      jobTitle: lead.jobTitle === "—" ? "" : lead.jobTitle,
+      industry: lead.industry === "—" ? "" : lead.industry,
+      companySize: lead.companySize === "—" ? "" : lead.companySize,
+      city: lead.city || "",
+      state: lead.state || "",
+      country: lead.country || "",
+      linkedinProfileUrl: lead.linkedinProfileUrl || "",
+      temperature: lead.temperature || "UNASSESSED",
+      qualificationStatus: lead.qualificationStatus || "new",
+      qualificationReason: lead.qualificationReason === "—" ? "" : lead.qualificationReason,
+    });
+    setEditLeadError(null);
+    setIsEditLeadModalOpen(true);
+  };
+
+  const handleSaveEditedLead = async () => {
+    if (!leadToEdit) return;
+    if (!editLeadForm.companyName.trim() && !editLeadForm.firstName.trim()) {
+      setEditLeadError("At least a company name or lead name is required.");
+      return;
+    }
+
+    setIsSavingLead(true);
+    setEditLeadError(null);
+    try {
+      // Safe delta payload: only include actively updated fields to avoid overwriting unchanged values
+      const payload: Record<string, any> = {};
+
+      const trimmedFirst = editLeadForm.firstName.trim();
+      if (trimmedFirst !== (leadToEdit.firstName || "")) payload.firstName = trimmedFirst;
+
+      const trimmedLast = editLeadForm.lastName.trim();
+      if (trimmedLast !== (leadToEdit.lastName || "")) payload.lastName = trimmedLast;
+
+      const trimmedEmail = editLeadForm.email.trim();
+      const existingEmail = leadToEdit.email === "—" ? "" : leadToEdit.email;
+      if (trimmedEmail !== existingEmail) payload.email = trimmedEmail || undefined;
+
+      const trimmedPhone = editLeadForm.phone.trim();
+      if (trimmedPhone !== (leadToEdit.phone || "")) payload.phone = trimmedPhone || undefined;
+
+      const trimmedComp = editLeadForm.companyName.trim();
+      const existingComp = leadToEdit.companyName === "—" ? "" : leadToEdit.companyName;
+      if (trimmedComp && trimmedComp !== existingComp) payload.companyName = trimmedComp;
+
+      const trimmedDomain = editLeadForm.companyDomain.trim();
+      if (trimmedDomain !== (leadToEdit.companyDomain || "")) payload.companyDomain = trimmedDomain || undefined;
+
+      const trimmedTitle = editLeadForm.jobTitle.trim();
+      const existingTitle = leadToEdit.jobTitle === "—" ? "" : leadToEdit.jobTitle;
+      if (trimmedTitle !== existingTitle) payload.jobTitle = trimmedTitle || undefined;
+
+      const trimmedInd = editLeadForm.industry.trim();
+      const existingInd = leadToEdit.industry === "—" ? "" : leadToEdit.industry;
+      if (trimmedInd !== existingInd) payload.industry = trimmedInd || undefined;
+
+      const trimmedCity = editLeadForm.city.trim();
+      if (trimmedCity !== (leadToEdit.city || "")) payload.city = trimmedCity || undefined;
+
+      const trimmedState = editLeadForm.state.trim();
+      if (trimmedState !== (leadToEdit.state || "")) payload.state = trimmedState || undefined;
+
+      const trimmedCountry = editLeadForm.country.trim();
+      if (trimmedCountry !== (leadToEdit.country || "")) payload.country = trimmedCountry || undefined;
+
+      const trimmedLi = editLeadForm.linkedinProfileUrl.trim();
+      const existingLi = leadToEdit.linkedinProfileUrl || "";
+      if (trimmedLi !== existingLi) payload.linkedinProfileUrl = trimmedLi || null;
+
+      if (editLeadForm.temperature !== leadToEdit.temperature) {
+        payload.temperature = editLeadForm.temperature;
+      }
+
+      if (editLeadForm.qualificationStatus !== leadToEdit.qualificationStatus) {
+        payload.qualificationStatus = editLeadForm.qualificationStatus;
+      }
+
+      const trimmedReason = editLeadForm.qualificationReason.trim();
+      const existingReason = leadToEdit.qualificationReason === "—" ? "" : leadToEdit.qualificationReason;
+      if (trimmedReason !== existingReason) payload.qualificationReason = trimmedReason || undefined;
+
+      const updatedLead = await updateBackendLead(leadToEdit.id, payload);
+
+      // Refresh local leads list
+      setLeadsList((prev) => prev.map((l) => (l.id === updatedLead.id ? updatedLead : l)));
+
+      // If drawer is open with this lead, refresh drawer data immediately
+      if (inspectedLead && inspectedLead.id === updatedLead.id) {
+        setInspectedLead(updatedLead);
+      }
+
+      setSuccessToast(`Lead "${updatedLead.fullName}" updated successfully.`);
+      setIsEditLeadModalOpen(false);
+      setLeadToEdit(null);
+
+      // Refresh lists to update member and valid email counts
+      loadLists();
+    } catch (err: unknown) {
+      setEditLeadError(err instanceof Error ? err.message : "Failed to update lead.");
+    } finally {
+      setIsSavingLead(false);
     }
   };
 
@@ -485,6 +663,7 @@ function LeadsPageContent() {
         industry: getVal(columnMapping.industry) || undefined,
         city: getVal(columnMapping.city) || undefined,
         country: getVal(columnMapping.country) || undefined,
+        linkedin_profile_url: getVal(columnMapping.linkedin_profile_url) || undefined,
       };
     });
   }, [csvRawRows, columnMapping]);
@@ -562,14 +741,15 @@ function LeadsPageContent() {
           listId={selectedListId}
           onBackToLists={handleBackToLists}
           onInspectLead={(lead) => setInspectedLead(lead)}
+          onEditLead={handleOpenEditLeadModal}
         />
       ) : viewMode === "all_leads" ? (
         /* Raw All-Leads View */
         <div className="space-y-4 max-w-7xl mx-auto pb-16">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-200/80">
+            <div className="flex items-center gap-3">
               <Button
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 onClick={() => setViewMode("lists")}
                 className="text-xs inline-flex items-center gap-1.5"
@@ -584,7 +764,7 @@ function LeadsPageContent() {
 
             <div className="flex items-center gap-2">
               <Button
-                variant="outline"
+                variant="secondary"
                 size="sm"
                 onClick={() => setIsImportModalOpen(true)}
                 className="text-xs inline-flex items-center gap-1.5"
@@ -596,7 +776,7 @@ function LeadsPageContent() {
                 variant="primary"
                 size="sm"
                 onClick={() => setIsAddLeadModalOpen(true)}
-                className="text-xs inline-flex items-center gap-1.5 bg-agile-red hover:bg-agile-red/90 text-white"
+                className="text-xs inline-flex items-center gap-1.5 shadow-xs"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>{isMarketing ? "Add Contact" : "Add Lead"}</span>
@@ -687,17 +867,39 @@ function LeadsPageContent() {
               </TableHeader>
               <TableBody>
                 {isLoadingLeads ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-xs text-slate-400">
-                      Loading leads...
-                    </TableCell>
-                  </TableRow>
+                  <TableLoadingRow colSpan={8} rows={4} />
                 ) : leadsList.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-xs text-slate-400">
-                      No leads found.
-                    </TableCell>
-                  </TableRow>
+                  <TableEmptyRow
+                    colSpan={8}
+                    title="No prospect leads found"
+                    description={
+                      searchQuery
+                        ? `No leads match "${searchQuery}". Try adjusting your search query.`
+                        : "No leads found in this view. Import leads or create a new prospect to begin."
+                    }
+                    action={
+                      <div className="flex items-center gap-2 pt-1">
+                        <Button
+                          variant="secondary"
+                          size="xs"
+                          onClick={() => setIsImportModalOpen(true)}
+                          className="text-xs"
+                        >
+                          <Download className="w-3.5 h-3.5 mr-1" />
+                          Import CSV
+                        </Button>
+                        <Button
+                          variant="primary"
+                          size="xs"
+                          onClick={() => setIsAddLeadModalOpen(true)}
+                          className="text-xs"
+                        >
+                          <Plus className="w-3.5 h-3.5 mr-1" />
+                          {isMarketing ? "Add Contact" : "Add Lead"}
+                        </Button>
+                      </div>
+                    }
+                  />
                 ) : (
                   leadsList.map((lead) => (
                     <TableRow key={lead.id} className={`hover:bg-slate-50/50 ${selectedIds.has(lead.id) ? "bg-rose-50/30" : ""}`}>
@@ -740,13 +942,22 @@ function LeadsPageContent() {
                         </Badge>
                       </TableCell>
                       <TableCell className="py-2.5 text-right">
-                        <button
-                          onClick={() => setInspectedLead(lead)}
-                          className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                          title="Inspect Lead"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handleOpenEditLeadModal(lead)}
+                            className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                            title="Edit Lead Details"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setInspectedLead(lead)}
+                            className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                            title="Inspect Lead"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -801,16 +1012,42 @@ function LeadsPageContent() {
       {/* ── MODAL: Create Custom List ── */}
       <Modal
         isOpen={isCreateListModalOpen}
-        onClose={() => setIsCreateListModalOpen(false)}
+        onClose={() => {
+          setIsCreateListModalOpen(false);
+          setNewListNameError(null);
+        }}
         title={isMarketing ? "Create New Audience List" : "Create New Lead List"}
+        description={
+          isMarketing
+            ? "Create a static audience list to organize members for marketing campaigns or segmented broadcasts."
+            : "Create a static prospect list to organize leads for outbound sequences or sales calls."
+        }
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsCreateListModalOpen(false)}
+              className="text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              onClick={handleCreateList}
+              isLoading={isCreatingList}
+              disabled={isCreatingList || !newListName.trim()}
+              className="text-xs shadow-xs"
+            >
+              Create List
+            </Button>
+          </>
+        }
       >
-        <div className="space-y-4">
-          <p className="text-xs text-slate-600">
-            {isMarketing
-              ? "Create a static list to organize audience members for campaigns, newsletters, or segmented broadcasts."
-              : "Create a static list to organize prospects for campaigns, sales calls, or segmented outreach."}
-          </p>
-
+        <div className="space-y-3.5">
           {createListError && (
             <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -818,42 +1055,28 @@ function LeadsPageContent() {
             </div>
           )}
 
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-700">List Name *</label>
-              <Input
-                placeholder="e.g. Q4 FinTech Founders"
-                value={newListName}
-                onChange={(e) => setNewListName(e.target.value)}
-                className="mt-1 h-8 text-xs"
-              />
-            </div>
+          <Input
+            label="List Name"
+            required
+            placeholder="e.g. Q4 FinTech Founders"
+            value={newListName}
+            error={newListNameError || undefined}
+            onChange={(e) => {
+              setNewListName(e.target.value);
+              if (newListNameError) setNewListNameError(null);
+            }}
+            helperText="A descriptive name to easily identify this group across your CRM."
+            autoFocus
+          />
 
-            <div>
-              <label className="text-xs font-semibold text-slate-700">Description (Optional)</label>
-              <Input
-                placeholder="e.g. High intent prospects targeting enterprise sales"
-                value={newListDesc}
-                onChange={(e) => setNewListDesc(e.target.value)}
-                className="mt-1 h-8 text-xs"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <Button variant="outline" size="sm" onClick={() => setIsCreateListModalOpen(false)} className="text-xs">
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleCreateList}
-              disabled={isCreatingList || !newListName.trim()}
-              className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
-            >
-              {isCreatingList ? "Creating..." : "Create List"}
-            </Button>
-          </div>
+          <Input
+            label="Description"
+            optional
+            placeholder="e.g. High intent prospects targeting enterprise sales"
+            value={newListDesc}
+            onChange={(e) => setNewListDesc(e.target.value)}
+            helperText="Internal notes on audience criteria or lead source."
+          />
         </div>
       </Modal>
 
@@ -862,180 +1085,193 @@ function LeadsPageContent() {
         isOpen={Boolean(listToEdit)}
         onClose={() => setListToEdit(null)}
         title="Edit List Details"
-      >
-        <div className="space-y-4">
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-700">List Name</label>
-              <Input
-                value={editListName}
-                onChange={(e) => setEditListName(e.target.value)}
-                className="mt-1 h-8 text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-700">Description</label>
-              <Input
-                value={editListDesc}
-                onChange={(e) => setEditListDesc(e.target.value)}
-                className="mt-1 h-8 text-xs"
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <Button variant="outline" size="sm" onClick={() => setListToEdit(null)} className="text-xs">
+        description="Update the name and notes for this static lead list."
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setListToEdit(null)}
+              className="text-xs"
+            >
               Cancel
             </Button>
             <Button
+              type="button"
               variant="primary"
               size="sm"
               onClick={handleUpdateList}
-              disabled={isUpdatingList}
-              className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
+              isLoading={isUpdatingList}
+              disabled={isUpdatingList || !editListName.trim()}
+              className="text-xs shadow-xs"
             >
-              {isUpdatingList ? "Saving..." : "Save Changes"}
+              Save Changes
             </Button>
-          </div>
+          </>
+        }
+      >
+        <div className="space-y-3.5">
+          <Input
+            label="List Name"
+            required
+            value={editListName}
+            onChange={(e) => setEditListName(e.target.value)}
+          />
+          <Input
+            label="Description"
+            optional
+            value={editListDesc}
+            onChange={(e) => setEditListDesc(e.target.value)}
+            helperText="Notes on the audience criteria or campaign target."
+          />
         </div>
       </Modal>
 
       {/* ── MODAL: Confirm Delete List ── */}
-      <Modal
+      <ConfirmModal
         isOpen={Boolean(listToDelete)}
         onClose={() => setListToDelete(null)}
-        title="Delete Lead List"
-      >
-        <div className="space-y-4">
-          <p className="text-xs text-slate-600 leading-relaxed">
-            Are you sure you want to delete the list <strong>"{listToDelete?.name}"</strong>?
-          </p>
-          <div className="p-3 bg-slate-50 rounded-lg text-[11px] text-slate-500 space-y-1 border border-slate-100">
-            <p>• Underlying CRM Contacts, Leads, Companies, and Campaigns will <strong>never</strong> be deleted.</p>
-            <p>• Historical outreach events and activity metrics remain completely intact.</p>
-          </div>
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <Button variant="outline" size="sm" onClick={() => setListToDelete(null)} className="text-xs">
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleDeleteList}
-              disabled={isDeletingList}
-              className="text-xs bg-rose-600 hover:bg-rose-700 text-white"
-            >
-              {isDeletingList ? "Deleting..." : "Delete List"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        onConfirm={handleDeleteList}
+        title={listToDelete ? `Delete List "${listToDelete.name}"?` : "Delete List"}
+        description={`Are you sure you want to delete "${listToDelete?.name}"? This removes the static list grouping.`}
+        consequenceNotice="Underlying CRM Contacts, Leads, Companies, and Campaigns will never be deleted. Historical outreach events and activity metrics remain completely intact."
+        confirmText="Delete List"
+        variant="danger"
+        isLoading={isDeletingList}
+      />
 
       {/* ── MODAL: Add Lead Manually ── */}
       <Modal
         isOpen={isAddLeadModalOpen}
-        onClose={() => setIsAddLeadModalOpen(false)}
-        title="Add Prospect Lead"
-      >
-        <div className="space-y-3.5">
-          {createLeadError && (
-            <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">
-              {createLeadError}
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <div>
-              <label className="text-xs font-semibold text-slate-700">First Name *</label>
-              <Input
-                placeholder="Jane"
-                value={newLeadForm.firstName}
-                onChange={(e) => setNewLeadForm({ ...newLeadForm, firstName: e.target.value })}
-                className="mt-1 h-8 text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-700">Last Name</label>
-              <Input
-                placeholder="Doe"
-                value={newLeadForm.lastName}
-                onChange={(e) => setNewLeadForm({ ...newLeadForm, lastName: e.target.value })}
-                className="mt-1 h-8 text-xs"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <div>
-              <label className="text-xs font-semibold text-slate-700">Email *</label>
-              <Input
-                placeholder="jane@company.com"
-                value={newLeadForm.email}
-                error={createLeadError === "Email is required." ? createLeadError : undefined}
-                onChange={(e) => {
-                  setNewLeadForm({ ...newLeadForm, email: e.target.value });
-                  if (createLeadError === "Email is required.") {
-                    setCreateLeadError(null);
-                  }
-                }}
-                className="mt-1 h-8 text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-700">Phone</label>
-              <Input
-                placeholder="+1 555-0100"
-                value={newLeadForm.phone}
-                onChange={(e) => setNewLeadForm({ ...newLeadForm, phone: e.target.value })}
-                className="mt-1 h-8 text-xs"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2.5">
-            <div>
-              <label className="text-xs font-semibold text-slate-700">Company Name *</label>
-              <Input
-                placeholder="Acme Corp"
-                value={newLeadForm.companyName}
-                onChange={(e) => setNewLeadForm({ ...newLeadForm, companyName: e.target.value })}
-                className="mt-1 h-8 text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-700">Job Title</label>
-              <Input
-                placeholder="VP of Growth"
-                value={newLeadForm.jobTitle}
-                onChange={(e) => setNewLeadForm({ ...newLeadForm, jobTitle: e.target.value })}
-                className="mt-1 h-8 text-xs"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-slate-700">Industry</label>
-            <Input
-              placeholder="e.g. Financial Services"
-              value={newLeadForm.industry}
-              onChange={(e) => setNewLeadForm({ ...newLeadForm, industry: e.target.value })}
-              className="mt-1 h-8 text-xs"
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-            <Button variant="outline" size="sm" onClick={() => setIsAddLeadModalOpen(false)} className="text-xs">
+        onClose={() => {
+          setIsAddLeadModalOpen(false);
+          setFirstNameError(null);
+          setCompanyNameError(null);
+        }}
+        title={isMarketing ? "Add Audience Contact" : "Add Prospect Lead"}
+        description="Enter prospect details to add a new record to your CRM database."
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsAddLeadModalOpen(false)}
+              className="text-xs"
+            >
               Cancel
             </Button>
             <Button
+              type="button"
               variant="primary"
               size="sm"
               onClick={handleCreateManualLead}
+              isLoading={isCreatingLead}
               disabled={isCreatingLead || !newLeadForm.firstName.trim() || !newLeadForm.companyName.trim()}
-              className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
+              className="text-xs shadow-xs"
             >
-              {isCreatingLead ? "Creating..." : "Save Lead"}
+              Save Lead
             </Button>
-          </div>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {createLeadError && (
+            <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{createLeadError}</span>
+            </div>
+          )}
+
+          <FormSection title="Contact Information">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input
+                label="First Name"
+                required
+                placeholder="Jane"
+                value={newLeadForm.firstName}
+                error={firstNameError || undefined}
+                onChange={(e) => {
+                  setNewLeadForm({ ...newLeadForm, firstName: e.target.value });
+                  if (firstNameError) setFirstNameError(null);
+                }}
+              />
+              <Input
+                label="Last Name"
+                optional
+                placeholder="Doe"
+                value={newLeadForm.lastName}
+                onChange={(e) => setNewLeadForm({ ...newLeadForm, lastName: e.target.value })}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input
+                label="Email Address"
+                optional
+                placeholder="jane@company.com"
+                value={newLeadForm.email}
+                onChange={(e) => setNewLeadForm({ ...newLeadForm, email: e.target.value })}
+                helperText="Required for automated email cadences."
+              />
+              <Input
+                label="Phone Number"
+                optional
+                placeholder="+1 555-0100"
+                value={newLeadForm.phone}
+                onChange={(e) => setNewLeadForm({ ...newLeadForm, phone: e.target.value })}
+                helperText="E.164 format for SMS / Voice."
+              />
+            </div>
+          </FormSection>
+
+          <FormSection title="Company & Employment">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Input
+                label="Company Name"
+                required
+                placeholder="Acme Corp"
+                value={newLeadForm.companyName}
+                error={companyNameError || undefined}
+                onChange={(e) => {
+                  setNewLeadForm({ ...newLeadForm, companyName: e.target.value });
+                  if (companyNameError) setCompanyNameError(null);
+                }}
+              />
+              <Input
+                label="Job Title"
+                optional
+                placeholder="VP of Growth"
+                value={newLeadForm.jobTitle}
+                onChange={(e) => setNewLeadForm({ ...newLeadForm, jobTitle: e.target.value })}
+              />
+            </div>
+
+            <Input
+              label="Industry"
+              optional
+              placeholder="e.g. Financial Services"
+              value={newLeadForm.industry}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, industry: e.target.value })}
+            />
+          </FormSection>
+
+          <FormSection
+            title="Social & Outreach Profiles"
+            description="Add social networking profiles for multi-touch outreach."
+            collapsible
+            defaultOpen={Boolean(newLeadForm.linkedinProfileUrl)}
+          >
+            <Input
+              label="LinkedIn Profile URL"
+              optional
+              placeholder="https://www.linkedin.com/in/username"
+              value={newLeadForm.linkedinProfileUrl || ""}
+              onChange={(e) => setNewLeadForm({ ...newLeadForm, linkedinProfileUrl: e.target.value })}
+              helperText="Personal profile link used in assisted LinkedIn outreach sequences."
+            />
+          </FormSection>
         </div>
       </Modal>
 
@@ -1106,6 +1342,42 @@ function LeadsPageContent() {
                 </p>
               </div>
 
+              {/* Column Mapping for LinkedIn Profile URL */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                  <span>LinkedIn Profile Column Mapping</span>
+                  <span className="text-[11px] text-slate-500 font-normal">
+                    {columnMapping.linkedin_profile_url !== -1
+                      ? `Mapped to: "${csvHeaders[columnMapping.linkedin_profile_url]}"`
+                      : "(Auto-detect: Not detected)"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <select
+                      value={columnMapping.linkedin_profile_url}
+                      onChange={(e) =>
+                        setColumnMapping({
+                          ...columnMapping,
+                          linkedin_profile_url: parseInt(e.target.value, 10),
+                        })
+                      }
+                      className="w-full text-xs p-1.5 rounded border border-slate-200 bg-white"
+                    >
+                      <option value={-1}>-- Not Mapped (Optional) --</option>
+                      {csvHeaders.map((header, idx) => (
+                        <option key={idx} value={idx}>
+                          Col {idx + 1}: {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="text-[11px] text-slate-500 flex items-center">
+                    URLs are automatically validated and normalized to canonical format.
+                  </div>
+                </div>
+              </div>
+
               {csvParseError && (
                 <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs">
                   {csvParseError}
@@ -1147,24 +1419,63 @@ function LeadsPageContent() {
             <p className="text-xs text-slate-500">No campaigns found. Create a campaign first.</p>
           ) : (
             <div className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Target Campaign</label>
-                <select
-                  value={selectedCampaignId}
-                  onChange={(e) => setSelectedCampaignId(e.target.value)}
-                  className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
-                >
-                  {availableCampaigns.map((camp) => (
-                    <option key={camp.id} value={camp.id}>
-                      {camp.name} ({camp.type}) — {camp.status}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="Target Campaign"
+                helperText="Choose an outreach campaign to enroll the selected leads."
+                value={selectedCampaignId}
+                onChange={(e) => setSelectedCampaignId(e.target.value)}
+                options={availableCampaigns.map((camp) => ({
+                  value: camp.id,
+                  label: `${camp.name} (${camp.type}) — ${camp.status}`,
+                }))}
+              />
+
+              {/* LinkedIn URL Availability Warning for Target Campaign */}
+              {(() => {
+                const targetCampaign = availableCampaigns.find((c) => c.id === selectedCampaignId) || availableCampaigns[0];
+                const isLinkedIn =
+                  (targetCampaign?.type as string) === "linkedin" ||
+                  targetCampaign?.channels?.includes("linkedin") ||
+                  targetCampaign?.steps?.some((s) => s.stepType === "linkedin") ||
+                  targetCampaign?.workflowConfig?.nodes?.some((n: any) => n.type === "linkedin");
+                if (!isLinkedIn) return null;
+
+                const selectedList = leadsList.filter((l) => selectedIds.has(l.id));
+                const missingUrlCount = selectedList.filter((l) => !l.linkedinProfileUrl).length;
+
+                if (missingUrlCount === 0) {
+                  return (
+                    <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>All {selectedList.length} selected leads have LinkedIn profile URLs recorded.</span>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold block">
+                        ⚠️ {missingUrlCount} of {selectedList.length} selected leads do not have a LinkedIn profile URL recorded.
+                      </span>
+                      <span className="text-[11px] text-amber-700">
+                        They will still be enrolled safely with auto-generated LinkedIn Search links, and you can record their profile URLs directly in the LinkedIn Outreach workspace.
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
           <div className="flex justify-between items-center pt-2 border-t border-slate-100">
-            <Button variant="outline" size="sm" onClick={() => setIsCampaignModalOpen(false)} className="text-xs">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsCampaignModalOpen(false)}
+              disabled={isEnrollingInCampaign}
+              className="text-xs"
+            >
               Cancel
             </Button>
             <div className="flex gap-2">
@@ -1173,6 +1484,7 @@ function LeadsPageContent() {
                 size="sm"
                 onClick={() => handleEnrollSelectedLeads(true)}
                 disabled={isEnrollingInCampaign || availableCampaigns.length === 0 || selectedIds.size === 0}
+                isLoading={isEnrollingInCampaign}
                 className="text-xs border-rose-300 text-rose-700 hover:bg-rose-50"
               >
                 <Send className="w-3 h-3 mr-1 text-rose-600" />
@@ -1183,9 +1495,10 @@ function LeadsPageContent() {
                 size="sm"
                 onClick={() => handleEnrollSelectedLeads(false)}
                 disabled={isEnrollingInCampaign || availableCampaigns.length === 0 || selectedIds.size === 0}
+                isLoading={isEnrollingInCampaign}
                 className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
               >
-                {isEnrollingInCampaign ? "Enrolling..." : "Enroll Selected"}
+                Enroll Selected
               </Button>
             </div>
           </div>
@@ -1206,11 +1519,222 @@ function LeadsPageContent() {
         />
       )}
 
+      {/* ── MODAL: Edit Lead Details ── */}
+      <Modal
+        isOpen={isEditLeadModalOpen}
+        onClose={() => {
+          if (!isSavingLead) {
+            setIsEditLeadModalOpen(false);
+            setLeadToEdit(null);
+          }
+        }}
+        title="Edit Lead Details"
+        description="Update prospect details, contact channels, company profile, or qualification status."
+      >
+        <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1">
+          {editLeadError && (
+            <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2" role="alert">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{editLeadError}</span>
+            </div>
+          )}
+
+          {/* Section: Contact Information */}
+          <FormSection
+            title="Contact Information"
+            description="Personal details and communication channels for this prospect."
+          >
+            <div className="grid grid-cols-2 gap-2.5">
+              <Input
+                label="First Name"
+                placeholder="First name"
+                value={editLeadForm.firstName}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, firstName: e.target.value })}
+                className="h-8 text-xs"
+              />
+              <Input
+                label="Last Name"
+                placeholder="Last name"
+                value={editLeadForm.lastName}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, lastName: e.target.value })}
+                className="h-8 text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <Input
+                label="Email Address"
+                optional
+                type="email"
+                placeholder="email@example.com"
+                value={editLeadForm.email}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, email: e.target.value })}
+                className="h-8 text-xs font-mono"
+              />
+              <Input
+                label="Phone Number"
+                optional
+                type="tel"
+                placeholder="+1 555-0100"
+                value={editLeadForm.phone}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, phone: e.target.value })}
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <Input
+                label="Job Title"
+                optional
+                placeholder="e.g. VP of Sales"
+                value={editLeadForm.jobTitle}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, jobTitle: e.target.value })}
+                className="h-8 text-xs"
+              />
+              <Input
+                label="LinkedIn Profile URL"
+                optional
+                placeholder="https://www.linkedin.com/in/username"
+                value={editLeadForm.linkedinProfileUrl}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, linkedinProfileUrl: e.target.value })}
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+          </FormSection>
+
+          {/* Section: Company & Organization */}
+          <FormSection
+            title="Company & Organization"
+            description="Employer, industry sector, and geographic location."
+          >
+            <div className="grid grid-cols-2 gap-2.5">
+              <Input
+                label="Company Name"
+                placeholder="Company name"
+                value={editLeadForm.companyName}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, companyName: e.target.value })}
+                className="h-8 text-xs"
+              />
+              <Input
+                label="Company Domain"
+                optional
+                placeholder="company.com"
+                value={editLeadForm.companyDomain}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, companyDomain: e.target.value })}
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+
+            <Input
+              label="Industry"
+              optional
+              placeholder="e.g. Financial Services"
+              value={editLeadForm.industry}
+              onChange={(e) => setEditLeadForm({ ...editLeadForm, industry: e.target.value })}
+              className="h-8 text-xs"
+            />
+
+            <div className="grid grid-cols-3 gap-2.5">
+              <Input
+                label="City"
+                optional
+                placeholder="City"
+                value={editLeadForm.city}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, city: e.target.value })}
+                className="h-8 text-xs"
+              />
+              <Input
+                label="State / Region"
+                optional
+                placeholder="State"
+                value={editLeadForm.state}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, state: e.target.value })}
+                className="h-8 text-xs"
+              />
+              <Input
+                label="Country"
+                optional
+                placeholder="Country"
+                value={editLeadForm.country}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, country: e.target.value })}
+                className="h-8 text-xs"
+              />
+            </div>
+          </FormSection>
+
+          {/* Section: Temperature & Qualification */}
+          <FormSection
+            title="Temperature & Qualification"
+            description="Assess sales engagement temperature and pipeline qualification status."
+          >
+            <div className="grid grid-cols-2 gap-2.5">
+              <Select
+                label="Lead Temperature"
+                value={editLeadForm.temperature}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, temperature: e.target.value as CRMLeadTemperature })}
+                options={[
+                  { value: "HOT", label: "🔥 Hot (Active buying intent)" },
+                  { value: "WARM", label: "☀️ Warm (Engaged / interested)" },
+                  { value: "COLD", label: "❄️ Cold (Unresponsive)" },
+                  { value: "UNASSESSED", label: "⚪ Unassessed" },
+                ]}
+              />
+              <Select
+                label="Qualification Status"
+                value={editLeadForm.qualificationStatus}
+                onChange={(e) => setEditLeadForm({ ...editLeadForm, qualificationStatus: e.target.value as any })}
+                options={[
+                  { value: "new", label: "New / Unassessed" },
+                  { value: "qualified", label: "Qualified" },
+                  { value: "disqualified", label: "Disqualified" },
+                  { value: "reviewed", label: "Reviewed" },
+                ]}
+              />
+            </div>
+
+            <Input
+              label="Qualification Notes"
+              optional
+              placeholder="e.g. Meets ICP criteria or notes from initial assessment"
+              value={editLeadForm.qualificationReason}
+              onChange={(e) => setEditLeadForm({ ...editLeadForm, qualificationReason: e.target.value })}
+              className="h-8 text-xs"
+            />
+          </FormSection>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isSavingLead}
+              onClick={() => {
+                setIsEditLeadModalOpen(false);
+                setLeadToEdit(null);
+              }}
+              className="text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSaveEditedLead}
+              disabled={isSavingLead}
+              isLoading={isSavingLead}
+              className="text-xs bg-agile-red hover:bg-agile-red/90 text-white"
+            >
+              Save Changes
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* ── Lead Detail Drawer ── */}
       <LeadDetailDrawer
         lead={inspectedLead}
         isOpen={Boolean(inspectedLead)}
         onClose={() => setInspectedLead(null)}
+        onEditLead={handleOpenEditLeadModal}
         onLeadUpdated={() => {
           loadLists();
           if (viewMode === "all_leads") loadLeads(currentPage);

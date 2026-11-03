@@ -5,7 +5,7 @@ import os
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.core.config import Settings
+from app.core.config import Settings, settings
 from app.main import app
 from app.services.integrations.hubspot import (
     HubSpotAssociationService,
@@ -15,6 +15,13 @@ from app.services.integrations.hubspot import (
 )
 
 MOCK_TOKEN = "pat-na2-mock-token-sales-marketing-12345"
+
+
+@pytest.fixture(autouse=True)
+def isolate_scheduler_settings(monkeypatch):
+    """Ensure test suites run with safe isolated scheduler defaults unless explicitly overridden by a test."""
+    monkeypatch.setattr(settings, "SCHEDULER_ENABLED", False)
+    monkeypatch.setattr(settings, "SCHEDULER_AUTO_DISPATCH", False)
 
 
 @pytest.fixture

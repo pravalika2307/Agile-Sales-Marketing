@@ -386,6 +386,8 @@ def send_outreach(
     outreach_id: uuid.UUID,
     provider: Optional[EmailProvider] = None,
     raise_on_failure: bool = False,
+    auto_advance_sequence: bool = True,
+    sent_at: Optional[datetime] = None,
 ) -> Outreach:
     """
     Execute explicit synchronous delivery for an outreach message.
@@ -417,54 +419,7 @@ def send_outreach(
     ):
         raise InconsistentEnrollmentError("Inconsistent campaign contact enrollment.")
 
-    if outreach.campaign.status == "completed":
-        raise CampaignCompletedError("Cannot execute outreach for a completed campaign.")
-
-    # 3. Channel verification
-    if outreach.channel == "sms":
-        from app.services.sms.service import send_sms_outreach
-        return send_sms_outreach(
-            db=db,
-            org_id=org_id,
-            outreach_id=outreach_id,
-            raise_on_failure=raise_on_failure,
-        )
-    elif outreach.channel == "voice":
-        from app.services.voice.service import send_voice_outreach
-        return send_voice_outreach(
-            db=db,
-            org_id=org_id,
-            outreach_id=outreach_id,
-            raise_on_failure=raise_on_failure,
-        )
-    elif outreach.channel == "physical_mail":
-        from app.services.physical_mail.service import send_single_physical_mail_outreach
-        return send_single_physical_mail_outreach(
-            db=db,
-            org_id=org_id,
-            outreach_id=outreach_id,
-            raise_on_failure=raise_on_failure,
-        )
-    elif outreach.channel != "email":
-        raise UnsupportedChannelError(
-            f"Cannot send outreach with channel '{outreach.channel}'. Only 'email', 'sms', 'voice', and 'physical_mail' are supported."
-        )
-
-    # 4. Idempotency & duplicate send protection
-    if outreach.status == "sent":
-        raise AlreadySentError("Outreach has already been sent.")
-    if outreach.status == "sending":
-        raise CurrentlySendingError("Outreach is currently in the process of sending.")
-    if outreach.status == "cancelled":
-        raise CancelledOutreachError("Cannot send a cancelled outreach.")
-    if outreach.status == "failed":
-        raise InvalidOutreachTransitionError("Cannot directly send failed outreach. Use retry.")
-    if outreach.status not in ("draft", "scheduled"):
-        raise InvalidOutreachTransitionError(
-            f"Cannot send outreach in status '{outreach.status}'. Allowed initial status is 'draft'."
-        )
-
-    # 4.5 Authoritative Recipient Opt-Out & Suppression Guard (Fail-closed)
+    # 2.5 Authoritative Recipient Opt-Out & Suppression Guard (Fail-closed)
     contact = outreach.contact
     if not contact:
         raise ContactNotFoundError("Referenced contact record is missing. Failing closed.")
@@ -511,7 +466,54 @@ def send_outreach(
         db.commit()
         db.refresh(outreach)
         raise SuppressedRecipientError(
-            f"Cannot send outreach: recipient is opted out or suppressed ({suppression_reason})."
+            f"Cannot send outreach: recipient has opted out (opted-out) or is suppressed ({suppression_reason})."
+        )
+
+    if outreach.campaign.status == "completed":
+        raise CampaignCompletedError("Cannot execute outreach for a completed campaign.")
+
+    # 3. Channel verification
+    if outreach.channel == "sms":
+        from app.services.sms.service import send_sms_outreach
+        return send_sms_outreach(
+            db=db,
+            org_id=org_id,
+            outreach_id=outreach_id,
+            raise_on_failure=raise_on_failure,
+        )
+    elif outreach.channel == "voice":
+        from app.services.voice.service import send_voice_outreach
+        return send_voice_outreach(
+            db=db,
+            org_id=org_id,
+            outreach_id=outreach_id,
+            raise_on_failure=raise_on_failure,
+        )
+    elif outreach.channel == "physical_mail":
+        from app.services.physical_mail.service import send_single_physical_mail_outreach
+        return send_single_physical_mail_outreach(
+            db=db,
+            org_id=org_id,
+            outreach_id=outreach_id,
+            raise_on_failure=raise_on_failure,
+        )
+    elif outreach.channel != "email":
+        raise UnsupportedChannelError(
+            f"Cannot send outreach with channel '{outreach.channel}'. Only 'email', 'sms', 'voice', and 'physical_mail' are supported."
+        )
+
+    # 4. Idempotency & duplicate send protection
+    if outreach.status == "sent":
+        raise AlreadySentError("Outreach has already been sent.")
+    if outreach.status == "sending":
+        raise CurrentlySendingError("Outreach is currently in the process of sending.")
+    if outreach.status == "cancelled":
+        raise CancelledOutreachError("Cannot send a cancelled outreach.")
+    if outreach.status == "failed":
+        raise InvalidOutreachTransitionError("Cannot directly send failed outreach. Use retry.")
+    if outreach.status not in ("draft", "scheduled"):
+        raise InvalidOutreachTransitionError(
+            f"Cannot send outreach in status '{outreach.status}'. Allowed initial status is 'draft'."
         )
 
     # 5. Required email & content validation
@@ -614,20 +616,25 @@ def send_outreach(
     result = active_provider.send(message)
 
     # 8. Transition to 'sent' or 'failed' based on provider result
+    delivery_time = (
+        (sent_at if sent_at.tzinfo is not None else sent_at.replace(tzinfo=timezone.utc))
+        if sent_at is not None
+        else datetime.now(timezone.utc)
+    )
     if result.success:
         outreach.status = "sent"
         outreach.provider = result.provider
         outreach.provider_message_id = result.provider_message_id
         if not outreach.recipient and recipient_email:
             outreach.recipient = recipient_email
-        outreach.sent_at = datetime.now(timezone.utc)
+        outreach.sent_at = delivery_time
 
         sent_event = OutreachEvent(
             organization_id=org_id,
             outreach_id=outreach.id,
             event_type="sent",
             event_metadata={"provider_message_id": result.provider_message_id},
-            occurred_at=datetime.now(timezone.utc),
+            occurred_at=delivery_time,
         )
         db.add(sent_event)
     else:
@@ -640,7 +647,7 @@ def send_outreach(
             outreach_id=outreach.id,
             event_type="failed",
             event_metadata={"error": result.error_message},
-            occurred_at=datetime.now(timezone.utc),
+            occurred_at=delivery_time,
         )
         db.add(failed_event)
 
@@ -649,6 +656,24 @@ def send_outreach(
 
     if not result.success and raise_on_failure:
         raise ProviderDeliveryError(f"Email delivery failed: {result.error_message}")
+
+    if result.success and auto_advance_sequence and outreach.campaign_contact_id:
+        try:
+            from app.services.campaign_scheduler import advance_campaign_contact_sequence
+            advance_campaign_contact_sequence(
+                db=db,
+                campaign_contact_id=outreach.campaign_contact_id,
+                org_id=org_id,
+                now=delivery_time,
+                email_provider=active_provider,
+                auto_dispatch=True,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Error auto-advancing campaign sequence after outreach %s delivery: %s",
+                outreach.id,
+                exc,
+            )
 
     return outreach
 

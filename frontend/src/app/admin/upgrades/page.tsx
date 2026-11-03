@@ -566,7 +566,7 @@ export default function AdminUpgradesPage() {
                           value={adminNotes}
                           onChange={(e) => setAdminNotes(e.target.value)}
                           className="w-full text-xs px-3 py-1.5 rounded border border-slate-300 bg-white"
-                          placeholder="e.g. 10DLC registration verified with Twilio"
+                          placeholder="e.g. Carrier compliance verified with telephony provider"
                         />
                       </div>
                     </div>
@@ -624,6 +624,7 @@ export default function AdminUpgradesPage() {
                         <Button
                           size="sm"
                           disabled={actionLoading}
+                          isLoading={actionLoading}
                           onClick={handleSubmitDecision}
                           className={`flex-1 text-xs h-8 ${
                             decisionMode === "approve"

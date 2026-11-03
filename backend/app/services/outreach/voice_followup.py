@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.normalization import normalize_email
+from app.core.test_detection import classify_is_test
 from app.models.call_record import CallRecord
 from app.models.campaign import CampaignContact
 from app.models.crm import Contact
@@ -900,6 +901,23 @@ class VoiceFollowUpService:
             except (ValueError, TypeError):
                 pass
 
+        # 1.5 Referenced Outreach lookup
+        target_outreach_id = (
+            data.metadata_json.get("outreach_id")
+            if isinstance(data.metadata_json, dict)
+            else None
+        )
+        if target_outreach_id:
+            try:
+                outreach_uuid = uuid.UUID(str(target_outreach_id))
+                outreach = self.db.get(Outreach, outreach_uuid)
+                if outreach:
+                    org = self.db.get(Organization, outreach.organization_id)
+                    if org:
+                        return org
+            except (ValueError, TypeError):
+                pass
+
         # 2. Existing CallRecord check (idempotent matching of prior call events)
         if data.call_id:
             existing_call = self.db.execute(
@@ -1012,6 +1030,15 @@ class VoiceFollowUpService:
                 first_name = parts[0]
                 last_name = parts[1] if len(parts) > 1 else ""
 
+            is_test_record = classify_is_test(
+                explicit_is_test=None,
+                email=norm_email,
+                first_name=first_name,
+                last_name=last_name,
+                company_name=data.company_name,
+                source="retell_voice_call",
+            )
+
             contact = Contact(
                 organization_id=org_id,
                 email=norm_email,
@@ -1020,6 +1047,7 @@ class VoiceFollowUpService:
                 phone=data.phone_number,
                 job_title=data.job_title,
                 lead_status="qualified" if data.call_outcome == OUTCOME_QUALIFIED else "contacted",
+                is_test=is_test_record,
             )
             self.db.add(contact)
             self.db.flush()
@@ -1055,6 +1083,15 @@ class VoiceFollowUpService:
                 first_name = parts[0]
                 last_name = parts[1] if len(parts) > 1 else None
 
+            is_test_lead = classify_is_test(
+                explicit_is_test=None,
+                email=norm_email,
+                first_name=first_name,
+                last_name=last_name,
+                company_name=data.company_name,
+                source="retell_voice_call",
+            )
+
             lead = Lead(
                 organization_id=org_id,
                 company_name=data.company_name,
@@ -1068,6 +1105,7 @@ class VoiceFollowUpService:
                 lead_temperature="hot" if data.meeting_requested else "warm",
                 contact_id=contact.id if contact else None,
                 company_id=contact.company_id if (contact and contact.company_id) else None,
+                is_test=is_test_lead,
             )
             self.db.add(lead)
             self.db.flush()
@@ -1314,6 +1352,25 @@ class VoiceFollowUpService:
                     occurred_at=data.ended_at or datetime.now(timezone.utc),
                 )
                 self.db.add(fail_evt)
+                self.db.commit()
+
+                # If part of an active campaign sequence, trigger progression to evaluate failure-handling branches
+                if linked_outreach.campaign_contact_id:
+                    try:
+                        from app.services.campaign_scheduler import advance_campaign_contact_sequence
+                        advance_campaign_contact_sequence(
+                            db=self.db,
+                            campaign_contact_id=linked_outreach.campaign_contact_id,
+                            org_id=org.id,
+                            email_provider=self.email_provider,
+                            auto_dispatch=True,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to advance sequence after call ended failure for cc=%s: %s",
+                            linked_outreach.campaign_contact_id,
+                            exc,
+                        )
 
         self.db.commit()
         return record
@@ -1485,13 +1542,11 @@ class VoiceFollowUpService:
                     )
                 )
 
-        # Halt further cold outreach if contact requested meeting or opted out
+        # Halt further cold outreach ONLY if contact explicitly opted out or requested DNC
         if linked_outreach and linked_outreach.campaign_contact_id:
             cc = self.db.get(CampaignContact, linked_outreach.campaign_contact_id)
             if cc and cc.enrollment_status == "in_progress":
-                if data.meeting_requested or data.call_outcome == OUTCOME_MEETING_REQUESTED:
-                    cc.enrollment_status = "completed"
-                elif data.do_not_contact or data.call_outcome in (OUTCOME_DO_NOT_CONTACT, OUTCOME_NOT_INTERESTED):
+                if data.do_not_contact or data.call_outcome == OUTCOME_DO_NOT_CONTACT:
                     cc.enrollment_status = "completed"
 
         # 2. Resolve authoritative recipient email
@@ -1574,6 +1629,24 @@ class VoiceFollowUpService:
             call_record.followup_idempotency_key = idempotency_key
             self.db.commit()
 
+            campaign_contact_id = (
+                linked_outreach.campaign_contact_id
+                if linked_outreach and linked_outreach.campaign_contact_id
+                else None
+            )
+            if campaign_contact_id:
+                try:
+                    from app.services.campaign_scheduler import advance_campaign_contact_sequence
+                    advance_campaign_contact_sequence(
+                        db=self.db,
+                        campaign_contact_id=campaign_contact_id,
+                        org_id=org.id,
+                        email_provider=self.email_provider,
+                        auto_dispatch=True,
+                    )
+                except Exception as exc:
+                    logger.warning("Error auto-advancing campaign sequence after skipped voice call for cc=%s: %s", campaign_contact_id, exc)
+
             return {
                 "status": "success",
                 "call_id": data.call_id,
@@ -1599,12 +1672,18 @@ class VoiceFollowUpService:
 
         # ── RECIPIENT COOLDOWN CHECK ──────────────────────────────────────────
         target_recipient_email = authoritative_email or decision.recipient_email
-        recent_outreach = self.check_recipient_cooldown(
-            org_id=org.id,
-            recipient_email=target_recipient_email,
-            cooldown_hours=self.cooldown_hours,
-            current_call_record_id=call_record.id,
+        is_campaign_call = bool(
+            (linked_outreach and linked_outreach.campaign_contact_id)
+            or (call_record.campaign_id and contact)
         )
+        recent_outreach = None
+        if not is_campaign_call:
+            recent_outreach = self.check_recipient_cooldown(
+                org_id=org.id,
+                recipient_email=target_recipient_email,
+                cooldown_hours=self.cooldown_hours,
+                current_call_record_id=call_record.id,
+            )
         if recent_outreach:
             cooldown_reason = (
                 f"skipped_cooldown: Voice follow-up to {target_recipient_email} "
@@ -1631,6 +1710,71 @@ class VoiceFollowUpService:
                 "followup_reason": cooldown_reason,
                 "outcome_status": "skipped_cooldown",
                 "followup_email_id": None,
+                "extracted_variables": {
+                    "lead_full_name": decision.recipient_name or data.lead_full_name,
+                    "email": authoritative_email,
+                    "phone_number": data.phone_number,
+                    "company_name": data.company_name,
+                    "job_title": data.job_title,
+                    "call_outcome": data.call_outcome,
+                    "meeting_requested": data.meeting_requested,
+                    "callback_requested": data.callback_requested,
+                    "do_not_contact": data.do_not_contact,
+                },
+            }
+
+        # Check if Step 2 has a positive delay configured in the campaign workflow
+        campaign_contact_id_for_delay = (
+            linked_outreach.campaign_contact_id
+            if linked_outreach and linked_outreach.campaign_contact_id
+            else None
+        )
+        has_positive_delay_step_2 = False
+        if call_record.campaign_id and campaign_contact_id_for_delay:
+            from app.models.campaign import Campaign
+            from app.services.workflow_service import get_campaign_ordered_steps
+            camp_rec = self.db.get(Campaign, call_record.campaign_id)
+            if camp_rec:
+                act_steps = [s for s in get_campaign_ordered_steps(self.db, camp_rec) if s.is_active]
+                steps_map = {s.step_number: s for s in act_steps}
+                step_2_cand = steps_map.get(2)
+                if step_2_cand and (getattr(step_2_cand, "delay_days", 0) > 0 or getattr(step_2_cand, "delay_hours", 0) > 0):
+                    has_positive_delay_step_2 = True
+
+        if has_positive_delay_step_2:
+            # Step 2 has a positive delay -> schedule via campaign scheduler rather than sending immediately
+            from app.services.campaign_scheduler import advance_campaign_contact_sequence
+            actions = advance_campaign_contact_sequence(
+                db=self.db,
+                campaign_contact_id=campaign_contact_id_for_delay,
+                org_id=org.id,
+                email_provider=self.email_provider,
+                auto_dispatch=True,
+            )
+            scheduled = next((a for a in actions if a.get("action") == "scheduled"), None)
+            call_record.followup_status = "in_progress"
+            call_record.followup_reason = (
+                f"Scheduled Step 2 for {scheduled.get('scheduled_at')}"
+                if scheduled
+                else "Step 2 scheduled according to campaign delay"
+            )
+            if scheduled and scheduled.get("outreach_id"):
+                try:
+                    call_record.followup_email_id = uuid.UUID(str(scheduled["outreach_id"]))
+                except (ValueError, TypeError):
+                    pass
+            call_record.followup_idempotency_key = idempotency_key
+            self.db.commit()
+
+            return {
+                "status": "success",
+                "call_id": data.call_id,
+                "event": "call_analyzed",
+                "duplicate": False,
+                "email_sent": False,
+                "followup_status": "in_progress",
+                "followup_reason": call_record.followup_reason,
+                "followup_email_id": str(call_record.followup_email_id) if call_record.followup_email_id else None,
                 "extracted_variables": {
                     "lead_full_name": decision.recipient_name or data.lead_full_name,
                     "email": authoritative_email,
@@ -1787,6 +1931,31 @@ class VoiceFollowUpService:
             call_record.followup_email_id = outreach_record.id
 
         self.db.commit()
+
+        # ── CAMPAIGN PROGRESSION TRIGGER ──
+        # Advance campaign sequence to schedule/dispatch subsequent steps (Step 3+, positive delays)
+        if campaign_contact_id and call_record.campaign_id:
+            try:
+                from app.models.campaign import Campaign
+                from app.services.workflow_service import get_campaign_ordered_steps
+                camp = self.db.get(Campaign, call_record.campaign_id)
+                active_steps = [s for s in get_campaign_ordered_steps(self.db, camp) if s.is_active] if camp else []
+                # Only auto-advance if there are subsequent steps remaining in the campaign (Step 3+)
+                if active_steps and len(active_steps) > 2:
+                    from app.services.campaign_scheduler import advance_campaign_contact_sequence
+                    advance_campaign_contact_sequence(
+                        db=self.db,
+                        campaign_contact_id=campaign_contact_id,
+                        org_id=org.id,
+                        email_provider=self.email_provider,
+                        auto_dispatch=True,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "Error auto-advancing campaign sequence after voice call analyzed for cc=%s: %s",
+                    campaign_contact_id,
+                    exc,
+                )
 
         return {
             "status": "success" if send_result.success else "failed",

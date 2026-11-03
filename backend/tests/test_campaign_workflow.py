@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
+from unittest.mock import patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import settings
 from app.core.database import Base, get_db
 from app.main import app
 from app.models.campaign import Campaign, CampaignContact
@@ -132,8 +134,41 @@ def test_workflow_validation_reports_sms_as_unconfigured():
         ],
         edges=[],
     )
+    with patch.object(settings, "TWILIO_ENABLED", False):
+        result = validate_workflow(config)
+        assert any("SMS gateway is currently unconfigured" in w for w in result.warnings)
+
+
+def test_workflow_validation_physical_mail_and_linkedin():
+    """Verify validation passes for valid physical mail and linkedin workflow nodes."""
+    config = WorkflowConfig(
+        nodes=[
+            WorkflowNode(id="start", type="start", title="Start", config={}),
+            WorkflowNode(
+                id="mail-1",
+                type="physical_mail",
+                title="Poplar Direct Mail",
+                config={"poplar_campaign_id": "cmp_123", "format": "postcard"},
+            ),
+            WorkflowNode(
+                id="li-1",
+                type="linkedin",
+                title="LinkedIn Assisted",
+                config={
+                    "message_type": "connection_request",
+                    "template": "Hi {contact.first_name}, connecting from Agile. Book: {booking_link}",
+                    "booking_url": "https://cal.com/agilereceivables/30min",
+                },
+            ),
+        ],
+        edges=[
+            WorkflowEdge(id="e1", source="start", target="mail-1"),
+            WorkflowEdge(id="e2", source="mail-1", target="li-1"),
+        ],
+    )
     result = validate_workflow(config)
-    assert any("SMS gateway is currently unconfigured" in w for w in result.warnings)
+    assert result.is_valid is True
+    assert len(result.errors) == 0
 
 
 def test_workflow_validation_accepts_valid_multi_step_workflow():

@@ -5,7 +5,8 @@ import uuid
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.core.normalization import normalize_linkedin_profile_url
 
 
 QualificationStatusType = Literal["new", "qualified", "disqualified", "reviewed"]
@@ -29,12 +30,47 @@ class LeadCreate(BaseModel):
     address_line_1: Optional[str] = Field(None, max_length=255)
     address_line_2: Optional[str] = Field(None, max_length=255)
     country: Optional[str] = Field(None, max_length=100)
+    linkedin_profile_url: Optional[str] = Field(None, max_length=500, description="Optional LinkedIn profile URL")
     icp_id: Optional[uuid.UUID] = None
     lead_temperature: Optional[LeadTemperatureType] = None
     lead_score: Optional[int] = Field(None, ge=0, le=100)
     source: Optional[str] = Field("manual", max_length=100)
     qualification_status: Optional[QualificationStatusType] = None
     status: Optional[LeadStatusType] = None
+    is_test: Optional[bool] = Field(False, description="Flag indicating whether this is a test/demo record")
+
+    @field_validator("linkedin_profile_url")
+    @classmethod
+    def validate_linkedin_profile_url(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_linkedin_profile_url(v)
+
+
+class LeadUpdate(BaseModel):
+    first_name: Optional[str] = Field(None, max_length=100)
+    last_name: Optional[str] = Field(None, max_length=100)
+    email: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(None, max_length=50)
+    job_title: Optional[str] = Field(None, max_length=255)
+    company_name: Optional[str] = Field(None, max_length=255)
+    company_domain: Optional[str] = Field(None, max_length=255)
+    industry: Optional[str] = Field(None, max_length=100)
+    employee_count_range: Optional[str] = Field(None, max_length=50)
+    city: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=50)
+    postal_code: Optional[str] = Field(None, max_length=20)
+    address_line_1: Optional[str] = Field(None, max_length=255)
+    address_line_2: Optional[str] = Field(None, max_length=255)
+    country: Optional[str] = Field(None, max_length=100)
+    linkedin_profile_url: Optional[str] = Field(None, max_length=500)
+    lead_temperature: Optional[LeadTemperatureType] = None
+    qualification_status: Optional[QualificationStatusType] = None
+    status: Optional[LeadStatusType] = None
+    is_test: Optional[bool] = None
+
+    @field_validator("linkedin_profile_url")
+    @classmethod
+    def validate_linkedin_profile_url(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_linkedin_profile_url(v)
 
 
 class LeadResponse(BaseModel):
@@ -67,6 +103,7 @@ class LeadResponse(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     job_title: Optional[str] = None
+    linkedin_profile_url: Optional[str] = None
 
     # Qualification & Scoring
     qualification_status: str
@@ -84,6 +121,7 @@ class LeadResponse(BaseModel):
 
     # Status & Timestamps
     status: str
+    is_test: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -154,6 +192,13 @@ class LeadImportRow(BaseModel):
     address_line_1: Optional[str] = Field(None, max_length=255)
     address_line_2: Optional[str] = Field(None, max_length=255)
     country: Optional[str] = Field(None, max_length=100)
+    linkedin_profile_url: Optional[str] = Field(None, max_length=500, description="Optional LinkedIn profile URL")
+    is_test: Optional[bool] = Field(None, description="Optional explicit test flag for CSV rows")
+
+    @field_validator("linkedin_profile_url")
+    @classmethod
+    def validate_import_linkedin_profile_url(cls, v: Optional[str]) -> Optional[str]:
+        return normalize_linkedin_profile_url(v)
 
 
 class LeadImportRequest(BaseModel):

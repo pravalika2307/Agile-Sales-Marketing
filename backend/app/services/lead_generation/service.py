@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.normalization import normalize_domain, normalize_email
+from app.core.test_detection import classify_is_test
 from app.models.crm import Company, Contact
 from app.models.icp import IdealCustomerProfile
 from app.models.lead import Lead
@@ -21,6 +22,7 @@ from app.schemas.lead import (
     LeadImportRow,
     LeadQualificationUpdate,
     LeadSelectionResponse,
+    LeadUpdate,
 )
 from app.services.lead_generation.base import (
     LeadGenerationProvider,
@@ -134,6 +136,15 @@ def generate_leads(
 
         score, temp, reason = calculate_lead_score(gen, icp)
 
+        lead_is_test = classify_is_test(
+            explicit_is_test=None,
+            email=norm_email or gen.email,
+            first_name=gen.first_name,
+            last_name=gen.last_name,
+            company_name=gen.company_name,
+            source=None,
+        )
+
         new_lead = Lead(
             organization_id=current_org.id,
             icp_id=icp.id,
@@ -157,6 +168,7 @@ def generate_leads(
             lead_score=score,
             qualification_reason=reason,
             status="new",
+            is_test=lead_is_test,
         )
         db.add(new_lead)
         created_leads.append(new_lead)
@@ -193,8 +205,9 @@ def list_leads(
     """List and filter leads with strict tenant isolation."""
     query = select(Lead).where(Lead.organization_id == current_org.id)
 
-    if exclude_test and not search:
+    if exclude_test:
         query = query.where(
+            Lead.is_test.is_(False),
             Lead.source != "retell_voice_call",
             or_(
                 Lead.email.is_(None),
@@ -282,9 +295,20 @@ def create_lead(
         parsed_first = raw_first or "Unknown"
         parsed_last = raw_last or ""
 
+    # Determine test classification via centralized helper
+    is_test_flag = classify_is_test(
+        explicit_is_test=getattr(data, "is_test", None),
+        email=norm_email,
+        first_name=parsed_first,
+        last_name=parsed_last,
+        company_name=data.company_name,
+        source=data.source,
+    )
+
     # Check whether an existing CRM contact represents the same person; create or associate
     linked_contact_id = None
     linked_company_id = None
+    existing_contact = None
     if norm_email:
         existing_contact = db.query(Contact).filter(
             Contact.organization_id == current_org.id,
@@ -293,51 +317,57 @@ def create_lead(
         if existing_contact:
             linked_contact_id = existing_contact.id
             linked_company_id = existing_contact.company_id
-        else:
-            # Resolve or create CRM Company
-            company = None
-            if norm_domain:
-                company = db.query(Company).filter(
-                    Company.organization_id == current_org.id,
-                    func.lower(Company.domain) == norm_domain,
-                ).first()
-            if not company and data.company_name and data.company_name.strip():
-                company = db.query(Company).filter(
-                    Company.organization_id == current_org.id,
-                    func.lower(Company.name) == data.company_name.strip().lower(),
-                ).first()
-            if not company and data.company_name and data.company_name.strip():
-                company = Company(
-                    organization_id=current_org.id,
-                    name=data.company_name.strip(),
-                    domain=norm_domain,
-                    industry=data.industry.strip() if data.industry else None,
-                    employee_count_range=data.employee_count_range.strip() if data.employee_count_range else None,
-                    city=data.city.strip() if data.city else None,
-                    country=data.country.strip() if data.country else None,
-                )
-                db.add(company)
-                db.flush()
 
-            # Create CRM Contact
-            new_contact = Contact(
+    if not existing_contact:
+        # Resolve or create CRM Company
+        company = None
+        if norm_domain:
+            company = db.query(Company).filter(
+                Company.organization_id == current_org.id,
+                func.lower(Company.domain) == norm_domain,
+            ).first()
+        if not company and data.company_name and data.company_name.strip():
+            company = db.query(Company).filter(
+                Company.organization_id == current_org.id,
+                func.lower(Company.name) == data.company_name.strip().lower(),
+            ).first()
+        if not company and data.company_name and data.company_name.strip():
+            company = Company(
                 organization_id=current_org.id,
-                company_id=company.id if company else None,
-                first_name=parsed_first,
-                last_name=parsed_last,
-                email=norm_email,
-                phone=data.phone.strip() if data.phone else None,
-                job_title=data.job_title.strip() if data.job_title else None,
-                lead_status="new",
+                name=data.company_name.strip(),
+                domain=norm_domain,
+                industry=data.industry.strip() if data.industry else None,
+                employee_count_range=data.employee_count_range.strip() if data.employee_count_range else None,
+                city=data.city.strip() if data.city else None,
+                country=data.country.strip() if data.country else None,
             )
-            db.add(new_contact)
-            try:
-                db.flush()
-                linked_contact_id = new_contact.id
-                linked_company_id = company.id if company else None
-            except IntegrityError:
-                # Concurrent transaction already created contact
-                db.rollback()
+            db.add(company)
+            db.flush()
+
+        # Create CRM Contact even when email is initially omitted
+        new_contact = Contact(
+            id=uuid.uuid4(),
+            organization_id=current_org.id,
+            company_id=company.id if company else None,
+            first_name=parsed_first,
+            last_name=parsed_last,
+            email=norm_email,
+            phone=data.phone.strip() if data.phone else None,
+            job_title=data.job_title.strip() if data.job_title else None,
+            lead_status="new",
+            is_test=is_test_flag,
+        )
+        if hasattr(new_contact, "linkedin_profile_url") and data.linkedin_profile_url:
+            new_contact.linkedin_profile_url = data.linkedin_profile_url
+        db.add(new_contact)
+        try:
+            db.flush()
+            linked_contact_id = new_contact.id
+            linked_company_id = company.id if company else None
+        except IntegrityError:
+            # Concurrent transaction already created contact
+            db.rollback()
+            if norm_email:
                 existing_contact = db.query(Contact).filter(
                     Contact.organization_id == current_org.id,
                     func.lower(Contact.email) == norm_email,
@@ -347,6 +377,7 @@ def create_lead(
                     linked_company_id = existing_contact.company_id
 
     lead = Lead(
+        id=uuid.uuid4(),
         organization_id=current_org.id,
         contact_id=linked_contact_id,
         company_id=linked_company_id,
@@ -367,7 +398,10 @@ def create_lead(
         source=data.source or "manual",
         qualification_status=data.qualification_status or "new",
         status=data.status or "new",
+        is_test=is_test_flag,
     )
+    if hasattr(lead, "linkedin_profile_url") and data.linkedin_profile_url:
+        lead.linkedin_profile_url = data.linkedin_profile_url
     db.add(lead)
     try:
         db.commit()
@@ -592,6 +626,7 @@ def convert_lead_to_crm(
                 "phone": lead.phone,
                 "job_title": lead.job_title,
                 "lead_status": "qualified" if lead.qualification_status == "qualified" else "new",
+                "is_test": bool(getattr(lead, "is_test", False)),
             }
             if hasattr(Contact, "address_line_1") and hasattr(lead, "address_line_1"):
                 contact_kwargs["address_line_1"] = getattr(lead, "address_line_1", None)
@@ -606,6 +641,8 @@ def convert_lead_to_crm(
             if hasattr(Contact, "country") and hasattr(lead, "country"):
                 contact_kwargs["country"] = getattr(lead, "country", None) or "US"
 
+            if hasattr(Contact, "linkedin_profile_url") and getattr(lead, "linkedin_profile_url", None):
+                contact_kwargs["linkedin_profile_url"] = lead.linkedin_profile_url
             contact = Contact(**contact_kwargs)
             db.add(contact)
             db.flush()
@@ -698,7 +735,18 @@ def import_leads(
                 linked_contact_id = existing_contact.id
                 linked_company_id = existing_contact.company_id
 
+        # Determine test classification via centralized helper
+        row_is_test = classify_is_test(
+            explicit_is_test=getattr(row, "is_test", None),
+            email=norm_email,
+            first_name=first_name,
+            last_name=last_name,
+            company_name=company_name,
+            source="csv_import",
+        )
+
         lead = Lead(
+            id=uuid.uuid4(),
             organization_id=current_org.id,
             contact_id=linked_contact_id,
             company_id=linked_company_id,
@@ -721,7 +769,12 @@ def import_leads(
             qualification_status="new",
             lead_temperature="cold",
             lead_score=0,
+            is_test=row_is_test,
         )
+        if hasattr(lead, "linkedin_profile_url") and getattr(row, "linkedin_profile_url", None):
+            lead.linkedin_profile_url = row.linkedin_profile_url.strip() or None
+            if linked_contact_id and existing_contact and not getattr(existing_contact, "linkedin_profile_url", None):
+                existing_contact.linkedin_profile_url = lead.linkedin_profile_url
         db.add(lead)
         db.flush()
         imported_ids.append(lead.id)
@@ -735,3 +788,101 @@ def import_leads(
         imported_ids=imported_ids,
         errors=errors,
     )
+
+def update_lead(
+    db: Session,
+    current_org: Organization,
+    lead_id: uuid.UUID,
+    data: LeadUpdate,
+) -> Lead:
+    """Update an existing Lead scoped to the tenant organization and sync Contact snapshot."""
+    lead = get_lead(db, current_org, lead_id)
+    if not lead:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Lead '{lead_id}' not found.",
+        )
+
+    update_dict = data.model_dump(exclude_unset=True)
+    if not update_dict:
+        return lead
+
+    # Update Lead fields
+    for field, val in update_dict.items():
+        if field == "email" and val:
+            val = normalize_email(val)
+        if field == "company_domain" and val:
+            val = normalize_domain(val)
+        if hasattr(lead, field):
+            setattr(lead, field, val)
+
+    # If lead doesn't have a linked company yet, resolve or create one
+    if not lead.company_id and lead.company_name:
+        company = (
+            db.query(Company)
+            .filter(
+                Company.organization_id == current_org.id,
+                func.lower(Company.name) == lead.company_name.strip().lower(),
+            )
+            .first()
+        )
+        if not company:
+            company = Company(
+                organization_id=current_org.id,
+                name=lead.company_name.strip(),
+                domain=lead.company_domain,
+                industry=lead.industry,
+                city=lead.city,
+                country=lead.country,
+            )
+            db.add(company)
+            db.flush()
+        lead.company_id = company.id
+
+    # If lead doesn't have a linked contact yet, create one if identifying details exist
+    if not lead.contact_id and (lead.first_name or lead.last_name or lead.email or lead.phone):
+        contact = Contact(
+            id=uuid.uuid4(),
+            organization_id=current_org.id,
+            company_id=lead.company_id,
+            first_name=lead.first_name or "",
+            last_name=lead.last_name or "",
+            email=lead.email,
+            phone=lead.phone,
+            job_title=lead.job_title,
+            lead_status="new",
+            is_test=bool(getattr(lead, "is_test", False)),
+        )
+        if hasattr(contact, "linkedin_profile_url") and getattr(lead, "linkedin_profile_url", None):
+            contact.linkedin_profile_url = lead.linkedin_profile_url
+        db.add(contact)
+        db.flush()
+        lead.contact_id = contact.id
+    elif lead.contact_id:
+        contact = (
+            db.query(Contact)
+            .filter(Contact.id == lead.contact_id, Contact.organization_id == current_org.id)
+            .first()
+        )
+        if contact:
+            if "linkedin_profile_url" in update_dict:
+                contact.linkedin_profile_url = update_dict["linkedin_profile_url"]
+            if "first_name" in update_dict:
+                contact.first_name = update_dict["first_name"] or ""
+            if "last_name" in update_dict:
+                contact.last_name = update_dict["last_name"] or ""
+            if "phone" in update_dict:
+                contact.phone = update_dict["phone"]
+            if "job_title" in update_dict:
+                contact.job_title = update_dict["job_title"]
+            if "email" in update_dict:
+                contact.email = update_dict["email"]
+            if "is_test" in update_dict:
+                contact.is_test = lead.is_test
+            if lead.company_id and not contact.company_id:
+                contact.company_id = lead.company_id
+
+    db.commit()
+    db.refresh(lead)
+    return lead
+
