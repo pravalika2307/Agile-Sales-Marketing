@@ -17,6 +17,7 @@ class EvaluationResult(str, Enum):
     ELIGIBLE = "eligible"
     SKIPPED = "skipped"
     REJECTED = "rejected"
+    HELD = "held"
 
 
 @dataclass
@@ -225,7 +226,10 @@ def evaluate_subsequent_step_eligibility(
         )
 
     # 8. Previous Step Delivery Rule: Sequence only advances if previous step succeeded
-    if not last_sent_outreach or last_sent_outreach.status != "sent":
+    # (Exception: if the next step explicitly handles failure/no-answer conditions)
+    is_failure_handler = required_condition in ("call_failed", "no_answer")
+    expected_statuses = {"sent"} if not is_failure_handler else {"failed", "sent"}
+    if not last_sent_outreach or last_sent_outreach.status not in expected_statuses:
         prev_status = last_sent_outreach.status if last_sent_outreach else "missing"
         return ContactEvaluation(
             campaign_contact_id=cc_id,
@@ -246,7 +250,8 @@ def evaluate_subsequent_step_eligibility(
             call_rec = getattr(last_sent_outreach, "call_record", None) if last_sent_outreach else None
             is_meeting = False
             if call_rec:
-                if call_rec.call_outcome in ("MEETING_REQUESTED", "QUALIFIED"):
+                outcome_norm = (call_rec.call_outcome or "").upper()
+                if outcome_norm in ("MEETING_REQUESTED", "QUALIFIED"):
                     is_meeting = True
                 elif isinstance(call_rec.collected_variables, dict) and call_rec.collected_variables.get("meeting_requested"):
                     is_meeting = True
@@ -281,10 +286,14 @@ def evaluate_subsequent_step_eligibility(
         elif required_condition in ("call_failed", "no_answer"):
             call_rec = getattr(last_sent_outreach, "call_record", None) if last_sent_outreach else None
             is_failed = False
+            if last_sent_outreach and last_sent_outreach.status == "failed":
+                is_failed = True
             if call_rec:
-                if call_rec.call_status == "failed" or call_rec.call_outcome in ("UNAVAILABLE", "NO_ANSWER"):
+                outcome_norm = (call_rec.call_outcome or "").upper()
+                disc = (call_rec.disconnection_reason or "").lower()
+                if call_rec.call_status == "failed" or outcome_norm in ("UNAVAILABLE", "NO_ANSWER"):
                     is_failed = True
-                elif call_rec.disconnection_reason in ("no_answer", "busy", "failed", "dial_error"):
+                elif any(f in disc for f in ("no_answer", "busy", "failed", "dial_error")):
                     is_failed = True
             if not is_failed:
                 return ContactEvaluation(
@@ -301,20 +310,40 @@ def evaluate_subsequent_step_eligibility(
                     reason=f"Step {next_step.step_number} requires completed voice call before advancing.",
                 )
 
-    # 9. Delay Elapsed Rule
+    # 9. Delay Elapsed & Staleness Rules
     is_zero_delay = (getattr(next_step, "delay_days", 0) == 0 and getattr(next_step, "delay_hours", 0) == 0)
-    if not is_zero_delay:
-        sent_time = last_sent_outreach.sent_at or last_sent_outreach.created_at
-        if sent_time.tzinfo is None:
-            sent_time = sent_time.replace(tzinfo=timezone.utc)
-        current_time = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    sent_time = last_sent_outreach.sent_at or last_sent_outreach.created_at
+    if sent_time.tzinfo is None:
+        sent_time = sent_time.replace(tzinfo=timezone.utc)
+    current_time = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+
+    if is_zero_delay:
+        due_time = sent_time
+    else:
         due_time = sent_time + timedelta(days=next_step.delay_days, hours=next_step.delay_hours)
-        if current_time < due_time:
-            return ContactEvaluation(
-                campaign_contact_id=cc_id,
-                result=EvaluationResult.SKIPPED,
-                reason=f"Step {next_step.step_number} delay not elapsed. Due at {due_time.isoformat()} (current: {current_time.isoformat()}).",
-            )
+
+    if current_time < due_time:
+        return ContactEvaluation(
+            campaign_contact_id=cc_id,
+            result=EvaluationResult.SKIPPED,
+            reason=f"Step {next_step.step_number} delay not elapsed. Due at {due_time.isoformat()} (current: {current_time.isoformat()}).",
+        )
+
+    # 9.5 Max Overdue Staleness Gate: Hold for manual review if overdue exceeds threshold
+    from app.core.config import settings
+    max_overdue_seconds = settings.SCHEDULER_MAX_OVERDUE_HOURS * 3600
+    overdue_seconds = (current_time - due_time).total_seconds()
+    if overdue_seconds > max_overdue_seconds:
+        overdue_hours = overdue_seconds / 3600.0
+        return ContactEvaluation(
+            campaign_contact_id=cc_id,
+            result=EvaluationResult.HELD,
+            reason=(
+                f"Step {next_step.step_number} is overdue by {overdue_hours:.1f}h (due at {due_time.isoformat()}), "
+                f"exceeding the maximum allowed staleness threshold of {settings.SCHEDULER_MAX_OVERDUE_HOURS}h. "
+                "Held for manual review."
+            ),
+        )
 
     # 10. Duplicate Outreach Rule for target step
     has_dup = any(o.status in NON_DUPLICATE_OUTREACH_STATUSES for o in existing_outreaches_for_next_step)

@@ -422,6 +422,9 @@ def complete_campaign(
     if not campaign:
         raise CampaignNotFoundError(f"Campaign '{campaign_id}' not found.")
 
+    if campaign.status == "completed":
+        return campaign
+
     if campaign.status not in ("active", "paused"):
         raise InvalidCampaignTransitionError(
             f"Cannot complete campaign with status '{campaign.status}'. Must be 'active' or 'paused'."

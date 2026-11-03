@@ -95,6 +95,7 @@ class SchedulerTickResponse(BaseModel):
     dispatched_count: int
     skipped_count: int
     halted_count: int
+    held_count: int = 0
     error_count: int
     details: List[dict] = Field(default_factory=list)
 
@@ -109,5 +110,39 @@ class SchedulerStatusResponse(BaseModel):
     batch_size: int = Field(..., description="Maximum messages processed per tick")
     database_dialect: str = Field(..., description="Database engine dialect (e.g. postgresql, sqlite)")
     status: str = Field(..., description="High-level status ('active' or 'disabled')")
+
+
+class HeldOutreachItem(BaseModel):
+    """Outreach step held for manual review due to overdue staleness."""
+    model_config = ConfigDict(from_attributes=True)
+
+    outreach_id: uuid.UUID
+    campaign_id: Optional[uuid.UUID] = None
+    campaign_name: Optional[str] = None
+    contact_id: Optional[uuid.UUID] = None
+    recipient: Optional[str] = None
+    channel: str
+    status: str
+    subject: Optional[str] = None
+    scheduled_at: Optional[str] = None
+    overdue_hours: Optional[float] = None
+    hold_reason: Optional[str] = None
+    held_at: Optional[str] = None
+
+
+class HeldOutreachResolveRequest(BaseModel):
+    """Payload to approve or dismiss a held outreach step."""
+    action: str = Field(..., description="Resolution action: 'approve' or 'dismiss'")
+
+
+class HeldOutreachResolveResponse(BaseModel):
+    """Result of manual review resolution on a held outreach step."""
+    model_config = ConfigDict(from_attributes=True)
+
+    outreach_id: uuid.UUID
+    action: str
+    status: str
+    message: str
+
 
 

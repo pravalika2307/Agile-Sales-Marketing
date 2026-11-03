@@ -53,7 +53,7 @@ export interface OutreachItem {
   contactName: string | null;
   companyName: string | null;
   channel: string;
-  status: "draft" | "scheduled" | "sending" | "sent" | "failed" | "cancelled";
+  status: "draft" | "scheduled" | "sending" | "sent" | "failed" | "cancelled" | "held";
   subject: string | null;
   body: string | null;
   provider: string | null;
@@ -63,6 +63,23 @@ export interface OutreachItem {
   firstDeliveredAt?: string | null;
   createdAt: string;
   error?: string | null;
+}
+
+export interface CampaignExecutionJobItem {
+  id: string;
+  organizationId: string;
+  campaignId: string | null;
+  campaignContactId: string | null;
+  contactId: string | null;
+  stepNumber: number;
+  channel: "email" | "voice" | "sms" | string;
+  status: "pending" | "processing" | "completed" | "failed" | "retry_scheduled" | "held" | "dispatch_unknown";
+  recipientSnapshot: string | null;
+  scheduledAt: string;
+  attempts: number;
+  maxAttempts: number;
+  lastError: string | null;
+  createdAt: string;
 }
 
 export interface WorkflowNode {

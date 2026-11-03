@@ -1620,6 +1620,8 @@ export const CampaignDetailDrawer: React.FC<CampaignDetailDrawerProps> = ({
                                     ? "bg-blue-50 text-blue-700 border-blue-200 animate-pulse"
                                     : outreach.status === "scheduled"
                                     ? "bg-purple-50 text-purple-700 border-purple-200"
+                                    : outreach.status === "held"
+                                    ? "bg-amber-50 text-amber-800 border-amber-300 font-bold"
                                     : outreach.status === "failed"
                                     ? "bg-rose-50 text-rose-700 border-rose-200"
                                     : "bg-slate-100 text-slate-700 border-slate-200"

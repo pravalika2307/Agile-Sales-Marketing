@@ -21,6 +21,12 @@ from app.models.campaign_step import (
     CampaignStep,
     ALLOWED_STEP_TYPES,
 )
+from app.models.campaign_execution_job import (
+    CampaignExecutionJob,
+    ALLOWED_JOB_STATUSES,
+    ALLOWED_JOB_CHANNELS,
+    AUTODISPATCH_ALLOWED_CHANNELS,
+)
 from app.models.outreach import (
     Outreach,
     OutreachEvent,
@@ -110,6 +116,10 @@ __all__ = [
     "ALLOWED_OUTREACH_EVENT_TYPES",
     "CampaignStep",
     "ALLOWED_STEP_TYPES",
+    "CampaignExecutionJob",
+    "ALLOWED_JOB_STATUSES",
+    "ALLOWED_JOB_CHANNELS",
+    "AUTODISPATCH_ALLOWED_CHANNELS",
     "IdealCustomerProfile",
     "Lead",
     "LeadResearch",

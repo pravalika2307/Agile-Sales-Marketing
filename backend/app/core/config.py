@@ -1,6 +1,7 @@
 """Application configuration for Agile Sales & Marketing Backend."""
 from __future__ import annotations
 
+import uuid
 from typing import Any, ClassVar, Dict, List, Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -260,11 +261,35 @@ class Settings(BaseSettings):
     SCHEDULER_BATCH_SIZE: int = Field(default=50)
     SCHEDULER_AUTO_DISPATCH: bool = Field(default=False)
     SCHEDULER_MAX_RETRIES: int = Field(default=3)
+    SCHEDULER_MAX_OVERDUE_HOURS: int = Field(
+        default=24,
+        description="Maximum hours a step can be overdue before holding for manual review",
+    )
+    SCHEDULER_AUTHORIZED_ORGS: str = Field(
+        default="",
+        description="Comma-separated list of organization UUIDs or slugs explicitly authorized for autonomous campaign scheduling",
+    )
 
     @property
     def is_scheduler_active(self) -> bool:
         """Check if campaign scheduler is enabled in active configuration."""
         return bool(self.SCHEDULER_ENABLED)
+
+    @property
+    def authorized_scheduler_org_ids(self) -> list[uuid.UUID]:
+        """Parsed list of explicitly authorized organization UUIDs for autonomous campaign scheduling."""
+        if not self.SCHEDULER_AUTHORIZED_ORGS:
+            return []
+        org_ids: list[uuid.UUID] = []
+        for item in self.SCHEDULER_AUTHORIZED_ORGS.split(","):
+            val = item.strip()
+            if not val:
+                continue
+            try:
+                org_ids.append(uuid.UUID(val))
+            except ValueError:
+                pass
+        return org_ids
 
     # AWS Bedrock (AI Email Generation)
     # Uses Anthropic Claude Sonnet 4.5 via cross-region inference profile (matching Agile Receivables)

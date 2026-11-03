@@ -161,6 +161,8 @@ def test_overdue_step_recovery_after_restart(test_db_session, monkeypatch):
     org = Organization(name="Restart Recovery Org", slug=f"restart-org-{uuid.uuid4().hex[:6]}")
     db.add(org)
     db.flush()
+    monkeypatch.setattr(settings, "SCHEDULER_AUTHORIZED_ORGS", str(org.id))
+    monkeypatch.setattr(settings, "SCHEDULER_MAX_OVERDUE_HOURS", 72)
 
     contact = Contact(organization_id=org.id, email="alex_restart@example.com", first_name="Alex", last_name="Restart")
     db.add(contact)
@@ -222,6 +224,7 @@ def test_positive_delay_strictly_waits_for_due_time(test_db_session, monkeypatch
     org = Organization(name="Positive Delay Org", slug=f"pos-org-{uuid.uuid4().hex[:6]}")
     db.add(org)
     db.flush()
+    monkeypatch.setattr(settings, "SCHEDULER_AUTHORIZED_ORGS", str(org.id))
 
     contact = Contact(organization_id=org.id, email="delay_strictly@example.com", first_name="Chris", last_name="Taylor")
     db.add(contact)
@@ -333,6 +336,7 @@ def test_failed_campaign_isolation_does_not_stop_other_campaigns(test_db_session
     org = Organization(name="Isolation Org", slug=f"iso-org-{uuid.uuid4().hex[:6]}")
     db.add(org)
     db.flush()
+    monkeypatch.setattr(settings, "SCHEDULER_AUTHORIZED_ORGS", str(org.id))
 
     contact1 = Contact(organization_id=org.id, email="corrupt_camp_user@example.com", first_name="Corrupt", last_name="User")
     contact2 = Contact(organization_id=org.id, email="healthy_camp_user@example.com", first_name="Healthy", last_name="User")

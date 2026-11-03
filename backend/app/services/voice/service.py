@@ -146,6 +146,14 @@ def initiate_outbound_call(
 
     # Test Mode / Safe Mock Simulation
     if force_mock or not is_live_allowed:
+        if retell_client is not None:
+            return retell_client.create_phone_call(
+                from_number=from_number,
+                to_number=to_number,
+                override_agent_id=agent_id,
+                dynamic_variables=dynamic_variables,
+                metadata=metadata,
+            )
         logger.info(
             "Retell live calling is disabled (test mode active). Simulating outbound call from %s to %s with agent %s",
             from_number,

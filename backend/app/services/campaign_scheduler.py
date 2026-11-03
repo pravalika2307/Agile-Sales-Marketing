@@ -124,6 +124,7 @@ class SchedulerTickResult:
     dispatched_count: int = 0
     skipped_count: int = 0
     halted_count: int = 0
+    held_count: int = 0
     error_count: int = 0
     details: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -137,8 +138,228 @@ class SchedulerTickResult:
             "dispatched_count": self.dispatched_count,
             "skipped_count": self.skipped_count,
             "halted_count": self.halted_count,
+            "held_count": self.held_count,
             "error_count": self.error_count,
             "details": self.details,
+        }
+
+
+def mark_outreach_held(
+    db: Session,
+    outreach: Outreach,
+    reason: str,
+    overdue_hours: float,
+    current_time: datetime,
+) -> Any:
+    """Marks an outreach as held for manual review due to overdue staleness threshold."""
+    from app.models.outreach import OutreachEvent
+
+    outreach.status = "draft"
+    evt = OutreachEvent(
+        organization_id=outreach.organization_id,
+        outreach_id=outreach.id,
+        event_type="scheduled",
+        event_metadata={
+            "held_for_manual_review": True,
+            "hold_reason": reason,
+            "overdue_hours": round(overdue_hours, 2),
+            "original_scheduled_at": _ensure_utc(outreach.scheduled_at).isoformat() if outreach.scheduled_at else None,
+            "held_at": current_time.isoformat(),
+        },
+        occurred_at=current_time,
+    )
+    db.add(evt)
+    return evt
+
+
+def list_held_outreaches(db: Session, org_id: uuid.UUID) -> List[Dict[str, Any]]:
+    """Lists all outreach steps currently held for manual review in an organization."""
+    from app.models.outreach import Outreach, OutreachEvent
+
+    held_events = (
+        db.query(OutreachEvent)
+        .filter(
+            OutreachEvent.organization_id == org_id,
+        )
+        .order_by(OutreachEvent.occurred_at.asc())
+        .all()
+    )
+    held_state: dict[uuid.UUID, dict] = {}
+    for evt in held_events:
+        if evt.event_metadata and "held_for_manual_review" in evt.event_metadata:
+            if evt.event_metadata.get("held_for_manual_review") is True:
+                held_state[evt.outreach_id] = {
+                    "hold_reason": evt.event_metadata.get("hold_reason"),
+                    "overdue_hours": evt.event_metadata.get("overdue_hours"),
+                    "held_at": evt.occurred_at.isoformat() if evt.occurred_at else None,
+                }
+            else:
+                held_state.pop(evt.outreach_id, None)
+
+    if not held_state:
+        return []
+
+    held_outreaches = (
+        db.query(Outreach)
+        .filter(
+            Outreach.id.in_(list(held_state.keys())),
+            Outreach.organization_id == org_id,
+            Outreach.status == "draft",
+        )
+        .all()
+    )
+
+    results = []
+    for o in held_outreaches:
+        info = held_state.get(o.id, {})
+        camp_name = o.campaign.name if o.campaign else None
+        results.append({
+            "outreach_id": o.id,
+            "campaign_id": o.campaign_id,
+            "campaign_name": camp_name,
+            "contact_id": o.contact_id,
+            "recipient": o.recipient_email or o.recipient,
+            "channel": o.channel,
+            "status": o.status,
+            "subject": o.subject,
+            "scheduled_at": o.scheduled_at.isoformat() if o.scheduled_at else None,
+            "overdue_hours": info.get("overdue_hours"),
+            "hold_reason": info.get("hold_reason"),
+            "held_at": info.get("held_at"),
+        })
+    return results
+
+
+def resolve_held_outreach(
+    db: Session,
+    org_id: uuid.UUID,
+    outreach_id: uuid.UUID,
+    action: str,
+    provider: Optional[EmailProvider] = None,
+    user_id: Optional[uuid.UUID] = None,
+) -> Dict[str, Any]:
+    """
+    Resolves a held outreach step by either 'approve' (dispatching immediately) or 'dismiss' (cancelling).
+    """
+    from app.models.outreach import Outreach, OutreachEvent
+
+    if action not in ("approve", "dismiss"):
+        raise ValueError(f"Invalid resolution action '{action}'. Must be 'approve' or 'dismiss'.")
+
+    outreach = (
+        db.query(Outreach)
+        .filter(Outreach.id == outreach_id, Outreach.organization_id == org_id)
+        .first()
+    )
+    if not outreach:
+        raise ValueError(f"Outreach '{outreach_id}' not found in organization.")
+
+    now = datetime.now(timezone.utc)
+
+    if action == "approve":
+        # Record un-hold approval event
+        evt = OutreachEvent(
+            organization_id=org_id,
+            outreach_id=outreach.id,
+            event_type="scheduled",
+            event_metadata={
+                "held_for_manual_review": False,
+                "approved_by": str(user_id) if user_id else "manual_review",
+                "approved_at": now.isoformat(),
+            },
+            occurred_at=now,
+        )
+        db.add(evt)
+        outreach.status = "draft"
+        db.flush()
+
+        # Dispatch
+        channel = outreach.channel
+        dispatch_status = "sent"
+        if channel == "email":
+            from app.services.outreach.service import send_outreach
+            sent_o = send_outreach(
+                db=db,
+                org_id=org_id,
+                outreach_id=outreach.id,
+                provider=provider,
+                raise_on_failure=True,
+                auto_advance_sequence=False,
+                sent_at=now,
+            )
+            dispatch_status = sent_o.status
+        elif channel == "voice":
+            from app.services.voice.service import send_voice_outreach
+            voice_o = send_voice_outreach(
+                db=db,
+                org_id=org_id,
+                outreach_id=outreach.id,
+                raise_on_failure=True,
+                force_mock=True,
+            )
+            dispatch_status = voice_o.status
+        elif channel == "sms":
+            from app.services.sms.service import send_sms_outreach
+            sms_o = send_sms_outreach(
+                db=db,
+                org_id=org_id,
+                outreach_id=outreach.id,
+                raise_on_failure=True,
+                auto_advance_sequence=False,
+                sent_at=now,
+            )
+            dispatch_status = sms_o.status
+        elif channel == "physical_mail":
+            from app.services.physical_mail.service import send_single_physical_mail_outreach
+            mail_o = send_single_physical_mail_outreach(
+                db=db,
+                org_id=org_id,
+                outreach_id=outreach.id,
+                force_mock=True,
+            )
+            dispatch_status = mail_o.status
+
+        # Advance enrollment sequence if applicable
+        if outreach.campaign_contact_id and dispatch_status == "sent":
+            advance_campaign_contact_sequence(
+                db=db,
+                campaign_contact_id=outreach.campaign_contact_id,
+                org_id=org_id,
+                now=now,
+                email_provider=provider,
+                auto_dispatch=True,
+            )
+
+        db.commit()
+        return {
+            "outreach_id": outreach_id,
+            "action": "approved",
+            "status": dispatch_status,
+            "message": f"Held step approved and dispatched via {channel}.",
+        }
+
+    elif action == "dismiss":
+        outreach.status = "cancelled"
+        evt = OutreachEvent(
+            organization_id=org_id,
+            outreach_id=outreach.id,
+            event_type="cancelled",
+            event_metadata={
+                "held_for_manual_review": False,
+                "dismissed_by": str(user_id) if user_id else "manual_review",
+                "dismissed_at": now.isoformat(),
+            },
+            occurred_at=now,
+        )
+        db.add(evt)
+        if outreach.campaign_id:
+            check_and_update_campaign_completion(db, outreach.campaign_id)
+        db.commit()
+        return {
+            "outreach_id": outreach_id,
+            "action": "dismissed",
+            "status": "cancelled",
+            "message": "Held step dismissed and cancelled.",
         }
 
 
@@ -383,28 +604,7 @@ def advance_campaign_contact_sequence(
             actions_taken.append({"action": "halted", "reason": "Outreach bounced"})
             break
 
-        # Meeting
-        scheduler_svc = CampaignSchedulerService(db=db)
-        if scheduler_svc.check_meeting_engagement(resolved_org_id, contact.id):
-            cc.enrollment_status = "completed"
-            _cancel_enrollment_pending_outreaches(db, cc.id, resolved_org_id, current_time, "Meeting requested or confirmed")
-            check_and_update_campaign_completion(db, camp.id)
-            db.commit()
-            actions_taken.append({"action": "halted", "reason": "Meeting requested/confirmed"})
-            break
-
-        # 6. Current Step Completion Check
-        last_outreach = existing_outreaches[-1] if existing_outreaches else None
-        if not last_outreach or last_outreach.status != "sent":
-            last_status = last_outreach.status if last_outreach else "missing"
-            actions_taken.append({
-                "action": "awaiting_completion",
-                "status": last_status,
-                "step": cc.current_step,
-            })
-            break
-
-        # 7. Step Ordering and Exhaustion Check
+        # 6. Step Ordering and Exhaustion Check
         from app.services.workflow_service import get_campaign_ordered_steps
         active_steps = [s for s in get_campaign_ordered_steps(db, camp) if s.is_active]
         if not active_steps:
@@ -423,6 +623,32 @@ def advance_campaign_contact_sequence(
             break
 
         next_step = steps_by_num[next_step_num]
+        required_condition = _extract_step_condition(camp, next_step_num)
+
+        # 7. Meeting Engagement Stop Check
+        # Prospect requesting a meeting halts the cold cadence unless this next step explicitly handles meeting follow-up
+        scheduler_svc = CampaignSchedulerService(db=db)
+        has_meeting = scheduler_svc.check_meeting_engagement(resolved_org_id, contact.id)
+        if has_meeting and required_condition != "meeting_requested":
+            cc.enrollment_status = "completed"
+            _cancel_enrollment_pending_outreaches(db, cc.id, resolved_org_id, current_time, "Meeting requested or confirmed")
+            check_and_update_campaign_completion(db, camp.id)
+            db.commit()
+            actions_taken.append({"action": "halted", "reason": "Meeting requested/confirmed"})
+            break
+
+        # 8. Current Step Completion Check
+        last_outreach = existing_outreaches[-1] if existing_outreaches else None
+        is_failure_handler = required_condition in ("call_failed", "no_answer")
+        expected_statuses = {"sent"} if not is_failure_handler else {"failed", "sent"}
+        if not last_outreach or last_outreach.status not in expected_statuses:
+            last_status = last_outreach.status if last_outreach else "missing"
+            actions_taken.append({
+                "action": "awaiting_completion",
+                "status": last_status,
+                "step": cc.current_step,
+            })
+            break
 
         # 8. Check Delay and Due Time
         sent_time = _ensure_utc(last_outreach.sent_at or last_outreach.created_at)
@@ -445,6 +671,8 @@ def advance_campaign_contact_sequence(
                     initial_status="scheduled",
                     sender_name=sender_name,
                 )
+                if last_outreach and getattr(last_outreach, "call_record_id", None):
+                    outreach.call_record_id = last_outreach.call_record_id
                 cc.current_step = next_step_num
                 db.commit()
                 actions_taken.append({
@@ -456,7 +684,6 @@ def advance_campaign_contact_sequence(
             break
 
         # 9. Step is Due -> Evaluate Eligibility
-        required_condition = _extract_step_condition(camp, next_step_num)
         evaluation = evaluate_subsequent_step_eligibility(
             campaign=camp,
             campaign_contact=cc,
@@ -465,17 +692,46 @@ def advance_campaign_contact_sequence(
             last_sent_outreach=last_outreach,
             existing_outreaches_for_next_step=existing_for_step,
             now=current_time,
-            has_meeting_requested=False,
+            has_meeting_requested=has_meeting,
             required_condition=required_condition,
         )
 
         if evaluation.result != EvaluationResult.ELIGIBLE:
-            actions_taken.append({
-                "action": "skipped",
-                "step_number": next_step_num,
-                "reason": evaluation.reason,
-            })
-            break
+            if evaluation.result == EvaluationResult.HELD:
+                # Step is overdue beyond max staleness threshold -> Hold for manual review
+                target_outreach = None
+                if existing_for_step:
+                    target_outreach = existing_for_step[0]
+                    target_outreach.status = "draft"
+                else:
+                    target_outreach = _create_step_outreach(
+                        db=db,
+                        camp=camp,
+                        cc=cc,
+                        contact=contact,
+                        step=next_step,
+                        scheduled_at=due_time,
+                        initial_status="draft",
+                        sender_name=sender_name,
+                    )
+                overdue_hours = (current_time - due_time).total_seconds() / 3600.0
+                mark_outreach_held(db, target_outreach, evaluation.reason or "Overdue staleness gate exceeded", overdue_hours, current_time)
+                cc.current_step = next_step_num
+                db.commit()
+                actions_taken.append({
+                    "action": "held",
+                    "step_number": next_step_num,
+                    "reason": evaluation.reason,
+                    "outreach_id": str(target_outreach.id),
+                })
+                break
+            else:
+                actions_taken.append({
+                    "action": "skipped",
+                    "step_number": next_step_num,
+                    "reason": evaluation.reason,
+                })
+                break
 
         # 10. Prepare or Retrieve Outreach for next_step_num
         target_outreach = None
@@ -498,6 +754,8 @@ def advance_campaign_contact_sequence(
                 initial_status="draft" if not auto_dispatch else "draft",
                 sender_name=sender_name,
             )
+            if last_outreach and getattr(last_outreach, "call_record_id", None):
+                target_outreach.call_record_id = last_outreach.call_record_id
             cc.current_step = next_step_num
             db.flush()
 
@@ -672,6 +930,19 @@ class CampaignSchedulerService:
             force_mock=force_mock,
         )
 
+    def list_held_outreaches(self, org_id: uuid.UUID) -> List[Dict[str, Any]]:
+        return list_held_outreaches(self.db, org_id)
+
+    def resolve_held_outreach(
+        self,
+        org_id: uuid.UUID,
+        outreach_id: uuid.UUID,
+        action: str,
+        provider: Optional[EmailProvider] = None,
+        user_id: Optional[uuid.UUID] = None,
+    ) -> Dict[str, Any]:
+        return resolve_held_outreach(self.db, org_id, outreach_id, action, provider=provider, user_id=user_id)
+
     def check_meeting_engagement(
         self,
         org_id: uuid.UUID,
@@ -699,7 +970,7 @@ class CampaignSchedulerService:
 
     def plan_due_steps(
         self,
-        org_id: Optional[uuid.UUID] = None,
+        org_id: uuid.UUID,
         campaign_id: Optional[uuid.UUID] = None,
         now: Optional[datetime] = None,
         dry_run: bool = False,
@@ -707,16 +978,21 @@ class CampaignSchedulerService:
     ) -> SchedulerTickResult:
         """
         Evaluates eligible enrollments across active campaigns and advances due steps.
+        Requires an explicit org_id to strictly enforce tenant isolation and prevent global sweeps.
         Calculates delays using delay_days and delay_hours relative to previous step completion.
         Enforces stop conditions (replies, bounces, opt-outs, meetings) and exhausts completed sequences.
         """
+        if org_id is None:
+            raise ValueError("plan_due_steps requires an explicit org_id. Unrestricted global sweeps are prohibited.")
+
         current_time = now if now is not None else datetime.now(timezone.utc)
         result = SchedulerTickResult(dry_run=dry_run)
 
-        # 1. Query active campaigns strictly scoped
-        camp_query = self.db.query(Campaign).filter(Campaign.status == "active")
-        if org_id:
-            camp_query = camp_query.filter(Campaign.organization_id == org_id)
+        # 1. Query active campaigns strictly scoped to the tenant organization
+        camp_query = self.db.query(Campaign).filter(
+            Campaign.status == "active",
+            Campaign.organization_id == org_id,
+        )
         if campaign_id:
             camp_query = camp_query.filter(Campaign.id == campaign_id)
 
@@ -873,15 +1149,110 @@ class CampaignSchedulerService:
                                 })
                                 continue
 
-                            evaluation = evaluate_campaign_contact(camp, cc, contact, existing_outreaches)
-                            if evaluation.result != EvaluationResult.ELIGIBLE:
-                                result.skipped_count += 1
+                            # Step 1 Staleness Gate
+                            max_overdue_seconds = settings.SCHEDULER_MAX_OVERDUE_HOURS * 3600
+                            overdue_seconds = (current_time - step1_due_time).total_seconds()
+                            if overdue_seconds > max_overdue_seconds:
+                                overdue_hours = overdue_seconds / 3600.0
+                                hold_reason = (
+                                    f"Step 1 is overdue by {overdue_hours:.1f}h (due at {step1_due_time.isoformat()}), "
+                                    f"exceeding the maximum allowed staleness threshold of {settings.SCHEDULER_MAX_OVERDUE_HOURS}h. "
+                                    "Held for manual review."
+                                )
+                                if not dry_run:
+                                    company = (
+                                        self.db.query(Company)
+                                        .filter(Company.id == contact.company_id, Company.organization_id == camp.organization_id)
+                                        .first()
+                                        if contact.company_id else None
+                                    )
+                                    step1_channel = getattr(step_1, "step_type", "email") or "email"
+                                    rendered_subj = (
+                                        render_template(step_1.subject_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                                        if step_1.subject_template else (None if step1_channel in ("sms", "voice") else "")
+                                    )
+                                    rendered_body = (
+                                        render_template(step_1.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                                        if step_1.body_template else (None if step1_channel == "voice" else "")
+                                    )
+                                    outreach_payload = OutreachCreate(
+                                        campaign_id=camp.id,
+                                        contact_id=cc.contact_id,
+                                        campaign_contact_id=cc.id,
+                                        channel=step1_channel,
+                                        subject=rendered_subj,
+                                        body=rendered_body,
+                                        scheduled_at=step1_due_time,
+                                    )
+                                    new_o = create_outreach(self.db, camp.organization_id, outreach_payload, commit=False)
+                                    mark_outreach_held(self.db, new_o, hold_reason, overdue_hours, current_time)
+                                    cc.enrollment_status = "in_progress"
+                                    cc.current_step = 1
+                                    self.db.flush()
+                                result.held_count += 1
                                 result.details.append({
                                     "campaign_contact_id": str(cc.id),
-                                    "action": "skipped",
-                                    "reason": evaluation.reason,
+                                    "contact_id": str(contact.id),
+                                    "action": "held",
+                                    "step_number": 1,
+                                    "reason": hold_reason,
                                 })
                                 continue
+
+                            evaluation = evaluate_campaign_contact(camp, cc, contact, existing_outreaches)
+                            if evaluation.result != EvaluationResult.ELIGIBLE:
+                                if evaluation.result == EvaluationResult.HELD:
+                                    if not dry_run:
+                                        if not existing_for_step:
+                                            company = (
+                                                self.db.query(Company)
+                                                .filter(Company.id == contact.company_id, Company.organization_id == camp.organization_id)
+                                                .first()
+                                                if contact.company_id else None
+                                            )
+                                            next_channel = getattr(next_step, "step_type", "email") or "email"
+                                            rendered_subj = (
+                                                render_template(next_step.subject_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                                                if next_step.subject_template else (None if next_channel in ("sms", "voice") else "")
+                                            )
+                                            rendered_body = (
+                                                render_template(next_step.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                                                if next_step.body_template else (None if next_channel == "voice" else "")
+                                            )
+                                            sent_time = _ensure_utc(last_outreach.sent_at or last_outreach.created_at)
+                                            delay_delta = timedelta(days=next_step.delay_days, hours=next_step.delay_hours)
+                                            due_time = sent_time + delay_delta
+                                            outreach_payload = OutreachCreate(
+                                                campaign_id=camp.id,
+                                                contact_id=cc.contact_id,
+                                                campaign_contact_id=cc.id,
+                                                channel=next_channel,
+                                                subject=rendered_subj,
+                                                body=rendered_body,
+                                                scheduled_at=due_time,
+                                            )
+                                            new_o = create_outreach(self.db, camp.organization_id, outreach_payload, commit=False)
+                                            overdue_hours = (current_time - due_time).total_seconds() / 3600.0
+                                            mark_outreach_held(self.db, new_o, evaluation.reason or "Overdue staleness", overdue_hours, current_time)
+                                            cc.current_step = next_step_num
+                                            self.db.flush()
+                                    result.held_count += 1
+                                    result.details.append({
+                                        "campaign_contact_id": str(cc.id),
+                                        "contact_id": str(contact.id),
+                                        "action": "held",
+                                        "step_number": next_step_num,
+                                        "reason": evaluation.reason,
+                                    })
+                                    continue
+                                else:
+                                    result.skipped_count += 1
+                                    result.details.append({
+                                        "campaign_contact_id": str(cc.id),
+                                        "action": "skipped",
+                                        "reason": evaluation.reason,
+                                    })
+                                    continue
 
                             # Render Step 1
                             company = (
@@ -1023,13 +1394,58 @@ class CampaignSchedulerService:
                             )
 
                             if evaluation.result != EvaluationResult.ELIGIBLE:
-                                result.skipped_count += 1
-                                result.details.append({
-                                    "campaign_contact_id": str(cc.id),
-                                    "action": "skipped",
-                                    "reason": evaluation.reason,
-                                })
-                                continue
+                                if evaluation.result == EvaluationResult.HELD:
+                                    if not dry_run:
+                                        if not existing_for_step:
+                                            company = (
+                                                self.db.query(Company)
+                                                .filter(Company.id == contact.company_id, Company.organization_id == camp.organization_id)
+                                                .first()
+                                                if contact.company_id else None
+                                            )
+                                            next_channel = getattr(next_step, "step_type", "email") or "email"
+                                            rendered_subj = (
+                                                render_template(next_step.subject_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                                                if next_step.subject_template else (None if next_channel in ("sms", "voice") else "")
+                                            )
+                                            rendered_body = (
+                                                render_template(next_step.body_template, contact=contact, company=company, sender_name=sender_name, booking_link=org_booking_url)
+                                                if next_step.body_template else (None if next_channel == "voice" else "")
+                                            )
+                                            sent_time = _ensure_utc(last_outreach.sent_at or last_outreach.created_at)
+                                            delay_delta = timedelta(days=next_step.delay_days, hours=next_step.delay_hours)
+                                            due_time = sent_time + delay_delta
+                                            outreach_payload = OutreachCreate(
+                                                campaign_id=camp.id,
+                                                contact_id=cc.contact_id,
+                                                campaign_contact_id=cc.id,
+                                                channel=next_channel,
+                                                subject=rendered_subj,
+                                                body=rendered_body,
+                                                scheduled_at=due_time,
+                                            )
+                                            new_o = create_outreach(self.db, camp.organization_id, outreach_payload, commit=False)
+                                            overdue_hours = (current_time - due_time).total_seconds() / 3600.0
+                                            mark_outreach_held(self.db, new_o, evaluation.reason or "Overdue staleness", overdue_hours, current_time)
+                                            cc.current_step = next_step_num
+                                            self.db.flush()
+                                    result.held_count += 1
+                                    result.details.append({
+                                        "campaign_contact_id": str(cc.id),
+                                        "contact_id": str(contact.id),
+                                        "action": "held",
+                                        "step_number": next_step_num,
+                                        "reason": evaluation.reason,
+                                    })
+                                    continue
+                                else:
+                                    result.skipped_count += 1
+                                    result.details.append({
+                                        "campaign_contact_id": str(cc.id),
+                                        "action": "skipped",
+                                        "reason": evaluation.reason,
+                                    })
+                                    continue
 
                             # Render template for next step
                             company = (
@@ -1128,44 +1544,105 @@ class CampaignSchedulerService:
 
         result.message = (
             f"Scheduler planning complete: {result.planned_count} planned, "
-            f"{result.completed_count} completed, {result.halted_count} halted, "
-            f"{result.skipped_count} skipped, {result.error_count} errors."
+            f"{result.completed_count} completed, {result.held_count} held, "
+            f"{result.halted_count} halted, {result.skipped_count} skipped, {result.error_count} errors."
         )
         return result
 
     def dispatch_scheduled_outreach(
         self,
-        org_id: Optional[uuid.UUID] = None,
+        org_id: uuid.UUID,
         now: Optional[datetime] = None,
         dry_run: bool = False,
         provider: Optional[EmailProvider] = None,
     ) -> SchedulerTickResult:
         """
         Dispatches pending scheduled Outreach records whose scheduled_at timestamp is due.
-        Separates scheduling/planning from message delivery.
+        Requires an explicit org_id to strictly enforce tenant isolation and prevent global sweeps.
+        Enforces maximum overdue staleness gate: any outreach overdue by > SCHEDULER_MAX_OVERDUE_HOURS
+        is automatically held for manual review and never dispatched.
         """
+        if org_id is None:
+            raise ValueError("dispatch_scheduled_outreach requires an explicit org_id. Unrestricted global sweeps are prohibited.")
+
         current_time = now if now is not None else datetime.now(timezone.utc)
         result = SchedulerTickResult(dry_run=dry_run)
 
         query = (
             self.db.query(Outreach)
             .filter(
+                Outreach.organization_id == org_id,
                 Outreach.status.in_(["scheduled", "draft"]),
             )
             .order_by(Outreach.scheduled_at.asc().nullsfirst())
         )
-        if org_id:
-            query = query.filter(Outreach.organization_id == org_id)
 
         if not dry_run and self.db.bind and self.db.bind.dialect.name == "postgresql":
             query = query.with_for_update(skip_locked=True)
 
         all_candidates = query.limit(settings.SCHEDULER_BATCH_SIZE * 2).all()
-        due_outreaches = [
-            o for o in all_candidates
-            if (o.status == "scheduled" and o.scheduled_at and _ensure_utc(o.scheduled_at) <= current_time)
-            or (o.status == "draft" and o.campaign_contact_id is not None and (o.scheduled_at is None or _ensure_utc(o.scheduled_at) <= current_time))
-        ][:settings.SCHEDULER_BATCH_SIZE]
+        if not all_candidates:
+            return result
+
+        cand_ids = [c.id for c in all_candidates]
+        from app.models.outreach import OutreachEvent
+        held_events = (
+            self.db.query(OutreachEvent)
+            .filter(
+                OutreachEvent.outreach_id.in_(cand_ids),
+            )
+            .order_by(OutreachEvent.occurred_at.asc())
+            .all()
+        )
+        held_map: dict[uuid.UUID, bool] = {}
+        for evt in held_events:
+            if evt.event_metadata and "held_for_manual_review" in evt.event_metadata:
+                held_map[evt.outreach_id] = bool(evt.event_metadata.get("held_for_manual_review"))
+
+        due_outreaches = []
+        for o in all_candidates:
+            # 1. Skip if already held for manual review
+            if held_map.get(o.id) is True:
+                result.skipped_count += 1
+                result.details.append({
+                    "outreach_id": str(o.id),
+                    "action": "skipped_held",
+                    "reason": "Outreach is held for manual review.",
+                })
+                continue
+
+            # 2. Check overdue staleness gate on scheduled_at
+            if o.scheduled_at:
+                sched_utc = _ensure_utc(o.scheduled_at)
+                overdue_seconds = (current_time - sched_utc).total_seconds()
+                max_overdue_seconds = settings.SCHEDULER_MAX_OVERDUE_HOURS * 3600
+                if overdue_seconds > max_overdue_seconds:
+                    overdue_hours = overdue_seconds / 3600.0
+                    hold_reason = (
+                        f"Outreach scheduled for {sched_utc.isoformat()} is overdue by {overdue_hours:.1f}h, "
+                        f"exceeding the maximum allowed staleness threshold of {settings.SCHEDULER_MAX_OVERDUE_HOURS}h. "
+                        "Held for manual review."
+                    )
+                    if not dry_run:
+                        mark_outreach_held(self.db, o, hold_reason, overdue_hours, current_time)
+                        self.db.flush()
+                    result.held_count += 1
+                    result.details.append({
+                        "outreach_id": str(o.id),
+                        "action": "held",
+                        "reason": hold_reason,
+                    })
+                    continue
+
+            # 3. Check if due for dispatch
+            is_due = (
+                (o.status == "scheduled" and o.scheduled_at and _ensure_utc(o.scheduled_at) <= current_time)
+                or (o.status == "draft" and o.campaign_contact_id is not None and (o.scheduled_at is None or _ensure_utc(o.scheduled_at) <= current_time))
+            )
+            if is_due:
+                due_outreaches.append(o)
+                if len(due_outreaches) >= settings.SCHEDULER_BATCH_SIZE:
+                    break
 
         for o in due_outreaches:
             if dry_run:
@@ -1250,40 +1727,97 @@ class CampaignSchedulerService:
                 )
 
         try:
-            # 1. Step planning and sequence advancement
-            plan_res = self.plan_due_steps(
-                org_id=org_id,
-                campaign_id=campaign_id,
-                now=now,
-                dry_run=dry_run,
-                sender_name=sender_name,
-            )
+            # Target organization determination with strict tenant scoping
+            target_org_ids: List[uuid.UUID] = []
+            if org_id is not None:
+                # Explicit org requested -> verify authorization
+                if org_id not in settings.authorized_scheduler_org_ids:
+                    logger.warning(
+                        "Scheduler tick requested for unauthorized org_id: %s. "
+                        "Configured authorized orgs: %s. Fails closed.",
+                        org_id, settings.authorized_scheduler_org_ids,
+                    )
+                    return SchedulerTickResult(
+                        status="skipped",
+                        message=f"Organization {org_id} is not authorized for scheduler execution.",
+                        dry_run=dry_run,
+                    )
+                target_org_ids = [org_id]
+            else:
+                # No org passed -> NEVER do a global sweep!
+                # Iterate strictly over authorized orgs from settings
+                target_org_ids = list(settings.authorized_scheduler_org_ids)
+                if not target_org_ids:
+                    logger.info(
+                        "SCHEDULER_AUTHORIZED_ORGS is empty. Scheduler tick fails closed without executing any sweeps."
+                    )
+                    return SchedulerTickResult(
+                        status="skipped",
+                        message="No authorized organizations configured in SCHEDULER_AUTHORIZED_ORGS. Scheduler tick fails closed.",
+                        dry_run=dry_run,
+                    )
 
-            # 2. Optional message dispatch if auto_dispatch configured
-            dispatch_res = SchedulerTickResult(dry_run=dry_run)
+            combined_result = SchedulerTickResult(dry_run=dry_run)
             should_dispatch = auto_dispatch if auto_dispatch is not None else settings.SCHEDULER_AUTO_DISPATCH
-            if should_dispatch:
-                dispatch_res = self.dispatch_scheduled_outreach(
-                    org_id=org_id,
-                    now=now,
-                    dry_run=dry_run,
-                    provider=provider,
-                )
 
-            # Consolidated result
-            total_details = plan_res.details + dispatch_res.details
-            return SchedulerTickResult(
-                status="completed",
-                message=f"{plan_res.message} Dispatched: {dispatch_res.dispatched_count}.",
-                dry_run=dry_run,
-                planned_count=plan_res.planned_count,
-                completed_count=plan_res.completed_count,
-                dispatched_count=dispatch_res.dispatched_count,
-                skipped_count=plan_res.skipped_count,
-                halted_count=plan_res.halted_count,
-                error_count=plan_res.error_count + dispatch_res.error_count,
-                details=total_details,
+            for target_org in target_org_ids:
+                try:
+                    # 1. Step planning and sequence advancement strictly scoped to target_org
+                    plan_res = self.plan_due_steps(
+                        org_id=target_org,
+                        campaign_id=campaign_id,
+                        now=now,
+                        dry_run=dry_run,
+                        sender_name=sender_name,
+                    )
+
+                    # 2. Message dispatch strictly scoped to target_org
+                    dispatch_res = SchedulerTickResult(dry_run=dry_run)
+                    if should_dispatch:
+                        dispatch_res = self.dispatch_scheduled_outreach(
+                            org_id=target_org,
+                            now=now,
+                            dry_run=dry_run,
+                            provider=provider,
+                        )
+
+                    # 3. Persistent asynchronous campaign execution job worker processing
+                    if should_dispatch and not dry_run:
+                        try:
+                            from app.services.campaign_execution.worker import CampaignJobWorker
+                            job_worker = CampaignJobWorker(self.db, email_provider=provider)
+                            worker_res = job_worker.run_single_tick(org_id=target_org, now=now)
+                            combined_result.dispatched_count += worker_res.get("processed_count", 0)
+                            combined_result.held_count += worker_res.get("held_count", 0)
+                        except Exception as worker_exc:
+                            logger.warning("Error running asynchronous job worker tick for org %s: %s", target_org, worker_exc)
+
+                    combined_result.planned_count += plan_res.planned_count
+                    combined_result.completed_count += plan_res.completed_count
+                    combined_result.dispatched_count += dispatch_res.dispatched_count
+                    combined_result.skipped_count += plan_res.skipped_count + dispatch_res.skipped_count
+                    combined_result.halted_count += plan_res.halted_count + dispatch_res.halted_count
+                    combined_result.held_count += plan_res.held_count + dispatch_res.held_count
+                    combined_result.error_count += plan_res.error_count + dispatch_res.error_count
+                    combined_result.details.extend(plan_res.details)
+                    combined_result.details.extend(dispatch_res.details)
+                except Exception as org_exc:
+                    logger.error("Error executing scheduler tick for org %s: %s", target_org, org_exc, exc_info=True)
+                    combined_result.error_count += 1
+                    combined_result.details.append({
+                        "org_id": str(target_org),
+                        "action": "error",
+                        "reason": str(org_exc),
+                    })
+
+            combined_result.status = "completed" if combined_result.error_count == 0 else "completed_with_errors"
+            combined_result.message = (
+                f"Scheduler tick complete: {combined_result.planned_count} planned, "
+                f"{combined_result.dispatched_count} dispatched, {combined_result.held_count} held, "
+                f"{combined_result.halted_count} halted, {combined_result.skipped_count} skipped, "
+                f"{combined_result.error_count} errors across {len(target_org_ids)} authorized organization(s)."
             )
+            return combined_result
         finally:
             if not dry_run and lock_acquired:
                 release_scheduler_lock(self.db, lock_acquired)
